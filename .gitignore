@@ -37,3 +37,7 @@ logs/
 .env
 .env.local
 .env.*.local
+
+# アイコン生成スクリプト（成果物は src-tauri/icons に格納）
+make-icon.ps1
+app-icon.png
