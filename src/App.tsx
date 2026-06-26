@@ -1,7 +1,6 @@
 import { LayoutConfigPanel } from "./components/LayoutConfigPanel";
 import { OverviewCanvas } from "./components/OverviewCanvas";
 import { LabelEditor } from "./components/LabelEditor";
-import { OutputPreview } from "./components/OutputPreview";
 import { ExportBar } from "./components/ExportBar";
 
 export default function App() {
@@ -33,11 +32,8 @@ export default function App() {
         </aside>
       </div>
 
-      {/* 下部: 出力プレビュー + エクスポート */}
+      {/* 下部: エクスポート */}
       <footer className="shrink-0 border-t border-slate-200">
-        <div className="p-3">
-          <OutputPreview />
-        </div>
         <ExportBar />
       </footer>
     </div>

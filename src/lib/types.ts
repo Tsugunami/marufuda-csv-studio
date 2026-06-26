@@ -21,6 +21,12 @@ export interface SheetGrid {
 /** 「～」の寄せ方向（偶数行時） */
 export type DelimiterAlign = "center" | "self" | "partner";
 
+/** ラベルの物理サイズ（mm）— 全体ビューのアスペクト比に反映 */
+export interface LabelSize {
+  widthMm: number; // ラベル幅 mm
+  heightMm: number; // ラベル高さ mm
+}
+
 /** レイアウト設定 */
 export interface LayoutConfig {
   blockCols: number; // ◯列
@@ -28,6 +34,7 @@ export interface LayoutConfig {
   itemsPerLabel: number; // 1ラベルあたり行数
   delimiter: string; // "～" | "~" | "→" | "" (none)
   delimiterAlign: DelimiterAlign;
+  labelSize: LabelSize; // ラベル物理サイズ
 }
 
 /** 出力設定 */

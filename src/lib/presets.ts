@@ -1,5 +1,7 @@
 import type { Preset } from "./types";
 
+const DEFAULT_LABEL_SIZE = { widthMm: 38.1, heightMm: 21.2 };
+
 /** 初期同梱プリセット */
 export const DEFAULT_PRESETS: Preset[] = [
   {
@@ -10,6 +12,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 7,
       delimiter: "～",
       delimiterAlign: "center",
+      labelSize: { ...DEFAULT_LABEL_SIZE },
     },
   },
   {
@@ -20,6 +23,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 8,
       delimiter: "～",
       delimiterAlign: "center",
+      labelSize: { widthMm: 48, heightMm: 25 },
     },
   },
   {
@@ -30,6 +34,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 5,
       delimiter: "～",
       delimiterAlign: "center",
+      labelSize: { ...DEFAULT_LABEL_SIZE },
     },
   },
   {
@@ -40,6 +45,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 4,
       delimiter: "～",
       delimiterAlign: "center",
+      labelSize: { ...DEFAULT_LABEL_SIZE },
     },
   },
   {
@@ -50,6 +56,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 4,
       delimiter: "～",
       delimiterAlign: "center",
+      labelSize: { widthMm: 63.5, heightMm: 17 },
     },
   },
   {
@@ -60,6 +67,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 6,
       delimiter: "～",
       delimiterAlign: "self",
+      labelSize: { widthMm: 48, heightMm: 25 },
     },
   },
   {
@@ -70,6 +78,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 6,
       delimiter: "～",
       delimiterAlign: "partner",
+      labelSize: { widthMm: 48, heightMm: 25 },
     },
   },
 ];

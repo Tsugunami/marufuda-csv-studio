@@ -5,6 +5,7 @@ import type {
   LayoutConfig,
   ExportConfig,
   ReverseDirection,
+  Preset,
 } from "./types";
 import { getDelimiterRowIndex } from "./delimiter";
 import { buildReversedLabel } from "./reverse";
@@ -59,6 +60,8 @@ interface AppState {
   updateLabelRow: (labelRow: number, text: string) => void;
   reverseTo: (direction: ReverseDirection) => void;
   setExportConfig: (config: Partial<ExportConfig>) => void;
+  addPreset: (name: string) => void;
+  deletePreset: (index: number) => void;
 }
 
 const initialLayout: LayoutConfig = DEFAULT_PRESETS[0].layout;
@@ -131,12 +134,15 @@ export const useStore = create<AppState>((set, get) => ({
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
-    // sourceTexts 構築時にデリミタ行を補完（readOnly行の text は空のため）
+    // sourceTexts 構築時にデリミタ行を補完（使用中ラベルのみ）
     const delimIdx = layout.delimiter
       ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
       : -1;
+    const used = sourceLabel.rows.some(
+      (row, i) => i !== delimIdx && row.text.trim() !== ""
+    );
     const sourceTexts = sourceLabel.rows.map((r, i) =>
-      i === delimIdx ? layout.delimiter : r.text
+      i === delimIdx && used ? layout.delimiter : r.text
     );
     const reversed = buildReversedLabel(sourceTexts, layout.delimiter);
     if (!reversed) return;
@@ -185,6 +191,19 @@ export const useStore = create<AppState>((set, get) => ({
 
   setExportConfig: (partial) => {
     set({ exportConfig: { ...get().exportConfig, ...partial } });
+  },
+
+  addPreset: (name) => {
+    const { layout, presets } = get();
+    const newPreset: Preset = { name, layout: { ...layout } };
+    set({ presets: [...presets, newPreset] });
+  },
+
+  deletePreset: (index) => {
+    const { presets } = get();
+    // デフォルトプリセット（先頭7件）は削除不可
+    if (index < DEFAULT_PRESETS.length) return;
+    set({ presets: presets.filter((_, i) => i !== index) });
   },
 }));
 
