@@ -3,11 +3,11 @@ import { useStore } from "../lib/store";
 import { buildCsvMatrix, buildCsvText } from "../lib/csv-build";
 
 export function OutputPreview() {
-  const { grid, exportConfig, setExportConfig } = useStore();
+  const { grid, exportConfig, setExportConfig, layout } = useStore();
 
   const matrix = useMemo(
-    () => buildCsvMatrix(grid, exportConfig),
-    [grid, exportConfig]
+    () => buildCsvMatrix(grid, exportConfig, layout),
+    [grid, exportConfig, layout]
   );
   const csvText = useMemo(() => buildCsvText(matrix), [matrix]);
 

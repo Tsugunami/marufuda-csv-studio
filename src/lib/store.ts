@@ -131,7 +131,13 @@ export const useStore = create<AppState>((set, get) => ({
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
-    const sourceTexts = sourceLabel.rows.map((r) => r.text);
+    // sourceTexts 構築時にデリミタ行を補完（readOnly行の text は空のため）
+    const delimIdx = layout.delimiter
+      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      : -1;
+    const sourceTexts = sourceLabel.rows.map((r, i) =>
+      i === delimIdx ? layout.delimiter : r.text
+    );
     const reversed = buildReversedLabel(sourceTexts, layout.delimiter);
     if (!reversed) return;
 

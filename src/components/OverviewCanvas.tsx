@@ -8,8 +8,11 @@ export function OverviewCanvas() {
   const { grid, selectedRow, selectedCol, selectLabel, layout } = useStore();
   const [zoom, setZoom] = useState(1);
 
+  // 行数に応じてセル高さを動的計算（全行が見きれないように）
   const cellW = 90;
-  const cellH = 70;
+  const rowLineH = 11; // 1行あたりの高さ
+  const cellHeaderH = 6; // 上部余白
+  const cellH = Math.max(70, cellHeaderH + layout.itemsPerLabel * rowLineH + 6);
   const padding = 20;
 
   const draw = useCallback(() => {
@@ -40,7 +43,10 @@ export function OverviewCanvas() {
         const y = r * cellH;
         const label = grid.labels[r]?.[c];
         const isSelected = r === selectedRow && c === selectedCol;
-        const hasData = label?.rows.some((row) => row.text.trim() !== "");
+        const hasData = label?.rows.some(
+          (row, i) =>
+            (i === delimIdx ? layout.delimiter : row.text).trim() !== ""
+        );
 
         // 背景
         if (isSelected) {
@@ -57,22 +63,17 @@ export function OverviewCanvas() {
         ctx.lineWidth = isSelected ? 2 : 1;
         ctx.strokeRect(x, y, cellW - 2, cellH - 2);
 
-        // ラベル番号
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "10px sans-serif";
-        ctx.fillText(`${r + 1}-${c + 1}`, x + 4, y + 12);
-
         // 行データプレビュー
         if (label) {
           ctx.font = "9px sans-serif";
-          const maxPreview = Math.min(label.rows.length, 5);
-          for (let i = 0; i < maxPreview; i++) {
-            const text = label.rows[i].text;
-            if (text.trim() === "") continue;
+          for (let i = 0; i < label.rows.length; i++) {
+            // デリミタ行は layout.delimiter で補完して表示
             const isDelim = i === delimIdx;
+            const text = isDelim ? layout.delimiter : label.rows[i].text;
+            if (text.trim() === "") continue;
             ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
             const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
-            ctx.fillText(displayText, x + 4, y + 26 + i * 11);
+            ctx.fillText(displayText, x + 4, y + cellHeaderH + 9 + i * rowLineH);
           }
         }
       }

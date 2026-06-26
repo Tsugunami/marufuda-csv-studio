@@ -1,14 +1,21 @@
-import type { SheetGrid, ExportConfig } from "./types";
+import type { SheetGrid, ExportConfig, LayoutConfig } from "./types";
+import { getDelimiterRowIndex } from "./delimiter";
 
 /**
  * SheetGrid を CSV 用の2次元配列に変換する。
  * 1ラベル = 1行、各列 = ラベルの各行データ。
+ * デリミタ行（readOnlyでtextが空）は layout.delimiter で補完する。
  */
 export function buildCsvMatrix(
   grid: SheetGrid,
-  config: ExportConfig
+  config: ExportConfig,
+  layout: LayoutConfig
 ): string[][] {
   const rows: string[][] = [];
+
+  const delimIdx = layout.delimiter
+    ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+    : -1;
 
   // ヘッダ行
   if (config.withHeader) {
@@ -30,7 +37,9 @@ export function buildCsvMatrix(
     for (let c = 0; c < grid.cols; c++) {
       const label = grid.labels[r]?.[c];
       if (!label) continue;
-      const cells = label.rows.map((row) => row.text);
+      const cells = label.rows.map((row, i) =>
+        i === delimIdx ? layout.delimiter : row.text
+      );
       rows.push(cells);
     }
   }
