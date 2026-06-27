@@ -32,7 +32,7 @@ export function LayoutConfigPanel() {
         <label className="block text-xs font-medium text-slate-600 mb-1">
           ファイル名（CSV出力時のデフォルト）
         </label>
-        <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1">
           <input
             type="text"
             className="flex-1 border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
@@ -40,7 +40,6 @@ export function LayoutConfigPanel() {
             value={csvFilename}
             onChange={(e) => setCsvFilename(e.target.value)}
           />
-          <span className="text-xs text-slate-500">.csv</span>
         </div>
       </div>
 

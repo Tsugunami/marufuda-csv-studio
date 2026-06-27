@@ -8,6 +8,7 @@ export function ExportBar() {
   const { grid, exportConfig, layout, csvFilename } = useStore();
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string>("");
+  const [format, setFormat] = useState<"csv" | "xlsx">("csv");
 
   const handleExport = async () => {
     setExporting(true);
@@ -16,13 +17,15 @@ export function ExportBar() {
       const matrix = buildCsvMatrix(grid, exportConfig, layout);
       const rows = matrix.map((cells) => ({ cells }));
 
-            // 保存先を選択
+      const ext = format;
       const defaultName = csvFilename.trim()
-        ? csvFilename.trim().replace(/\.csv$/i, "") + ".csv"
-        : `marufuda_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.csv`;
+        ? csvFilename.trim().replace(/\.(csv|xlsx)$/i, "") + "." + ext
+        : `marufuda_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.${ext}`;
       const filePath = await save({
         defaultPath: defaultName,
-        filters: [{ name: "CSV", extensions: ["csv"] }],
+        filters: format === "csv"
+          ? [{ name: "CSV", extensions: ["csv"] }]
+          : [{ name: "Excel", extensions: ["xlsx"] }],
       });
 
       if (!filePath || typeof filePath !== "string") {
@@ -31,7 +34,8 @@ export function ExportBar() {
         return;
       }
 
-      const result = await invoke<string>("export_csv", {
+      const cmd = format === "csv" ? "export_csv" : "export_xlsx";
+      const result = await invoke<string>(cmd, {
         request: {
           rows,
           encoding: exportConfig.encoding,
@@ -54,15 +58,37 @@ export function ExportBar() {
         disabled={exporting}
         onClick={handleExport}
       >
-        {exporting ? "出力中..." : "CSV出力実行"}
+        {exporting ? "出力中..." : "出力実行"}
       </button>
+      {/* フォーマット選択 */}
+      <div className="flex items-center gap-1">
+        <button
+          className={`px-2 py-1 text-xs rounded border ${
+            format === "csv"
+              ? "bg-brand-50 border-brand-300 text-brand-700 font-medium"
+              : "border-slate-300 text-slate-500 hover:bg-slate-50"
+          }`}
+          onClick={() => setFormat("csv")}
+        >CSV</button>
+        <button
+          className={`px-2 py-1 text-xs rounded border ${
+            format === "xlsx"
+              ? "bg-brand-50 border-brand-300 text-brand-700 font-medium"
+              : "border-slate-300 text-slate-500 hover:bg-slate-50"
+          }`}
+          onClick={() => setFormat("xlsx")}
+        >Excel</button>
+      </div>
       <span className="text-xs text-slate-500">
-        {grid.cols * grid.rows} ラベル /{" "}
-        {exportConfig.encoding === "shift_jis"
-          ? "Shift-JIS"
-          : exportConfig.encoding === "utf8_bom"
-          ? "UTF-8 BOM"
-          : "UTF-8"}
+        {grid.cols * grid.rows} ラベル
+        {format === "csv" && (
+          <> /{" "}
+          {exportConfig.encoding === "shift_jis"
+            ? "Shift-JIS"
+            : exportConfig.encoding === "utf8_bom"
+            ? "UTF-8 BOM"
+            : "UTF-8"}</>
+        )}
       </span>
       {message && (
         <span

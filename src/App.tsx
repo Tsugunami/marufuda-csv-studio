@@ -93,8 +93,8 @@ export default function App() {
   ) => {
     const ok = importCsvData(csvRows, csvHasHeader, newLayout);
     if (ok) {
-      setCsvFilename(filename);
-      setStatusMsg(`CSV読込完了: ${filename}.csv`);
+    setCsvFilename(filename);
+    setStatusMsg(`読込完了: ${filename}`);
     } else {
       setStatusMsg("CSV読込エラー: データ構造が一致しません");
     }
@@ -103,23 +103,29 @@ export default function App() {
   const handleImportCsv = async () => {
     try {
       const filePath = await open({
-        filters: [{ name: "CSV", extensions: ["csv"] }],
+        filters: [
+          { name: "CSV / Excel", extensions: ["csv", "xlsx"] },
+          { name: "CSV", extensions: ["csv"] },
+          { name: "Excel", extensions: ["xlsx"] },
+        ],
         multiple: false,
       });
       if (!filePath || typeof filePath !== "string") {
-        setStatusMsg("CSV読込をキャンセルしました");
+        setStatusMsg("読込をキャンセルしました");
         return;
       }
 
-      const result = await invoke<{ rows: string[][]; has_header: boolean }>("import_csv", { path: filePath });
+      const isXlsx = /\.xlsx$/i.test(filePath);
+      const cmd = isXlsx ? "import_xlsx" : "import_csv";
+      const result = await invoke<{ rows: string[][]; has_header: boolean }>(cmd, { path: filePath });
       const { rows, has_header } = result;
       if (!rows || rows.length === 0) {
-        setStatusMsg("CSVファイルが空です");
+        setStatusMsg("ファイルが空です");
         return;
       }
 
       const filename = filePath.split(/[/\\]/).pop() || filePath;
-      const baseName = filename.replace(/\.csv$/i, "");
+      const baseName = filename.replace(/\.(csv|xlsx)$/i, "");
 
       const dataRows = has_header ? rows.slice(1) : rows;
       const csvItemsPerLabel = rows[0]?.length || 0;
@@ -271,8 +277,8 @@ export default function App() {
           <button
             className="px-3 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-500 text-white"
             onClick={handleImportCsv}
-            title="CSVを読み込む"
-          >📥 CSV読込</button>
+            title="CSV/Excelを読み込む"
+          >📥 読込</button>
           <button
             className="px-3 py-1 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white"
             onClick={handleSaveProject}
@@ -318,7 +324,7 @@ export default function App() {
       {importModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
-            <h3 className="text-sm font-bold text-slate-800 mb-3">CSV読込 — レイアウト確認</h3>
+            <h3 className="text-sm font-bold text-slate-800 mb-3">読込 — レイアウト確認</h3>
             <div className="text-xs text-slate-600 space-y-2 mb-4">
               <p>読み込みファイル名：<strong>{importModal.filename}</strong></p>
               <div className="border border-slate-200 rounded p-3 space-y-1">

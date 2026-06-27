@@ -136,11 +136,97 @@ fn import_csv(path: String) -> Result<CsvImportResult, String> {
     Ok(CsvImportResult { rows, has_header })
 }
 
+#[tauri::command]
+fn export_xlsx(request: CsvExportRequest) -> Result<String, String> {
+    use rust_xlsxwriter::{Workbook, Format};
+
+    let path = PathBuf::from(&request.path);
+    let mut wb = Workbook::new();
+    let sheet = wb.add_worksheet();
+
+    // ヘッダ行を含めて書き込み
+    let header_format = Format::new().set_bold();
+    for (row_idx, row) in request.rows.iter().enumerate() {
+        for (col_idx, cell) in row.cells.iter().enumerate() {
+            if row_idx == 0 {
+                sheet.write_with_format(row_idx as u32, col_idx as u16, cell, &header_format)
+                    .map_err(|e| format!("xlsx書き込みエラー: {}", e))?;
+            } else {
+                sheet.write(row_idx as u32, col_idx as u16, cell)
+                    .map_err(|e| format!("xlsx書き込みエラー: {}", e))?;
+            }
+        }
+    }
+
+    // 列幅を自動調整（大まかに）
+    for col_idx in 0..request.rows.first().map(|r| r.cells.len()).unwrap_or(0) {
+        sheet.set_column_width(col_idx as u16, 18)
+            .map_err(|e| format!("xlsx列幅設定エラー: {}", e))?;
+    }
+
+    wb.save(&path).map_err(|e| format!("xlsx保存エラー: {}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
+    use calamine::{Reader, open_workbook_auto, Data};
+
+    let mut workbook = open_workbook_auto(&path)
+        .map_err(|e| format!("xlsxファイル読み込みエラー: {}", e))?;
+
+    // 最初のシートを取得
+    let sheet_names = workbook.sheet_names();
+    if sheet_names.is_empty() {
+        return Err("シートが見つかりません".to_string());
+    }
+    let first_sheet = &sheet_names[0];
+
+    let range = workbook.worksheet_range(first_sheet)
+        .map_err(|e| format!("シート読み込みエラー: {}", e))?;
+
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for row in range.rows() {
+        let cells: Vec<String> = row.iter().map(|cell| {
+            match cell {
+                Data::String(s) => s.clone(),
+                Data::Int(i) => i.to_string(),
+                Data::Float(f) => {
+                    // 整数の場合は小数点以下を表示しない
+                    if *f == f.trunc() {
+                        format!("{}", *f as i64)
+                    } else {
+                        format!("{}", f)
+                    }
+                }
+                Data::Bool(b) => b.to_string(),
+                Data::DateTime(dt) => dt.to_string(),
+                Data::Error(e) => format!("{:?}", e),
+                Data::Empty => String::new(),
+                _ => String::new(),
+            }
+        }).collect();
+        rows.push(cells);
+    }
+
+    let has_header = if !rows.is_empty() {
+        rows[0].iter().enumerate().all(|(i, cell)| {
+            let trimmed = cell.trim();
+            trimmed == format!("項目{}", i + 1)
+                || (trimmed.starts_with("項目") && trimmed.len() > 2)
+        })
+    } else {
+        false
+    };
+
+    Ok(CsvImportResult { rows, has_header })
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![export_csv, import_csv])
+        .invoke_handler(tauri::generate_handler![export_csv, import_csv, export_xlsx, import_xlsx])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

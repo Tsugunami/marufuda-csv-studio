@@ -1,6 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 
-// ドラッグとクリックを区別する閾値（px）
 const DRAG_THRESHOLD = 5;
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
@@ -10,22 +9,30 @@ function cellKey(r: number, c: number): string {
   return `${r},${c}`;
 }
 
+interface ContextMenuState {
+  x: number;
+  y: number;
+  row: number;
+  col: number;
+}
+
 export function OverviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const {
     grid, selectedRow, selectedCol, selectedCells, selectLabel, selectAll, layout,
     clearSelected, undo, clipboard, clipboardMode,
+    copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
+    copyTo, reverseTo,
   } = useStore();
   const [zoom, setZoom] = useState(1);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
 
-  // ドラッグ（つまみ移動）用の状態
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const dragMoved = useRef(false);
   const mouseDownPos = useRef({ x: 0, y: 0 });
 
-  // アスペクト比を維持しつつ、全行が見えるセルサイズを計算
   const rowLineH = 11;
   const cellHeaderH = 6;
   const minCellH = cellHeaderH + layout.itemsPerLabel * rowLineH + 6;
@@ -36,6 +43,7 @@ export function OverviewCanvas() {
   const cellH = cellW * aspect;
   const padding = 20;
   const sizeMargin = 18;
+  const labelMargin = 22; // 行番号・列番号用の余白
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -43,8 +51,8 @@ export function OverviewCanvas() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const w = (grid.cols * cellW + padding * 2 + sizeMargin) * zoom;
-    const h = (grid.rows * cellH + padding * 2 + sizeMargin) * zoom;
+    const w = (grid.cols * cellW + padding * 2 + sizeMargin + labelMargin) * zoom;
+    const h = (grid.rows * cellH + padding * 2 + sizeMargin + labelMargin) * zoom;
     canvas.width = w;
     canvas.height = h;
 
@@ -53,7 +61,7 @@ export function OverviewCanvas() {
 
     ctx.save();
     ctx.scale(zoom, zoom);
-    ctx.translate(padding + sizeMargin, padding + sizeMargin);
+    ctx.translate(padding + sizeMargin + labelMargin, padding + sizeMargin + labelMargin);
 
     // 左上ブロックのサイズ表示
     ctx.fillStyle = "#64748b";
@@ -67,6 +75,22 @@ export function OverviewCanvas() {
     ctx.textBaseline = "bottom";
     ctx.fillText(`← ${layout.labelSize.heightMm}mm →`, 0, 0);
     ctx.restore();
+
+    // 列番号（上部）
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "bold 10px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    for (let c = 0; c < grid.cols; c++) {
+      ctx.fillText(`${c + 1}`, c * cellW + (cellW - 2) / 2, -4);
+    }
+
+    // 行番号（左側）
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let r = 0; r < grid.rows; r++) {
+      ctx.fillText(`${r + 1}`, -4, r * cellH + (cellH - 2) / 2);
+    }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
 
@@ -83,14 +107,12 @@ export function OverviewCanvas() {
           : -1;
         const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
 
-        // 背景
         if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
         else if (isSelected) ctx.fillStyle = "#dbeafe";
         else if (hasData) ctx.fillStyle = "#f0fdf4";
         else ctx.fillStyle = "#ffffff";
         ctx.fillRect(x, y, cellW - 2, cellH - 2);
 
-        // 枠
         if (isSelected) {
           ctx.strokeStyle = "#2563eb";
           ctx.lineWidth = 2;
@@ -103,14 +125,12 @@ export function OverviewCanvas() {
         }
         ctx.strokeRect(x, y, cellW - 2, cellH - 2);
 
-                // 行データプレビュー（上下左右中央揃え）
         if (label) {
           const displayTexts = getLabelDisplayTexts(label, layout);
           ctx.font = "9px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const centerX = x + (cellW - 2) / 2;
-          // 行データ全体をセルの上下中央に配置
           const totalH = displayTexts.length * rowLineH;
           const startY = y + (cellH - totalH) / 2 + rowLineH / 2;
           for (let i = 0; i < displayTexts.length; i++) {
@@ -128,50 +148,72 @@ export function OverviewCanvas() {
       }
     }
 
-    // クリップボード状態の表示
     if (clipboard) {
-      ctx.fillStyle = clipboardMode === "reverse" ? "rgba(139,92,246,0.15)" : "rgba(249,115,22,0.15)";
+      ctx.fillStyle = clipboardMode === "reverse" ? "#7c3aed" : "#ea580c";
       ctx.font = "bold 11px sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
-      ctx.fillStyle = clipboardMode === "reverse" ? "#7c3aed" : "#ea580c";
       const modeText = clipboardMode === "reverse" ? "反転コピー済み" : "コピー済み";
-      ctx.fillText(`📋 ${modeText} — セル選択後に貼付ボタン`, padding + sizeMargin, -sizeMargin + 2);
+      ctx.fillText(`📋 ${modeText} — セル選択後に貼付ボタン`, 0, -labelMargin);
     }
 
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, clipboard, clipboardMode]);
+  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, labelMargin, clipboard, clipboardMode]);
 
   useEffect(() => {
     draw();
   }, [draw]);
 
-    const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    // ドラッグで移動した場合はクリックとして扱わない
+  const getCellFromEvent = (e: React.MouseEvent): { row: number; col: number } | null => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX / zoom - padding - sizeMargin - labelMargin;
+    const y = (e.clientY - rect.top) * scaleY / zoom - padding - sizeMargin - labelMargin;
+    const col = Math.floor(x / cellW);
+    const row = Math.floor(y / cellH);
+    if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
+      return { row, col };
+    }
+    return null;
+  };
+
+  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (dragMoved.current) {
       dragMoved.current = false;
       return;
     }
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX / zoom - padding - sizeMargin;
-    const y = (e.clientY - rect.top) * scaleY / zoom - padding - sizeMargin;
-
-    const col = Math.floor(x / cellW);
-    const row = Math.floor(y / cellH);
-        if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
-      selectLabel(row, col, e.ctrlKey || e.metaKey, e.shiftKey);
+    const cell = getCellFromEvent(e);
+    if (cell) {
+      selectLabel(cell.row, cell.col, e.ctrlKey || e.metaKey, e.shiftKey);
     }
   };
 
-  // ドラッグ開始（つまみ移動）
+  const handleContextMenu = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const cell = getCellFromEvent(e);
+    if (cell) {
+      selectLabel(cell.row, cell.col);
+      setCtxMenu({ x: e.clientX, y: e.clientY, row: cell.row, col: cell.col });
+    }
+  };
+
+  const closeContextMenu = useCallback(() => {
+    setCtxMenu(null);
+  }, []);
+
+  useEffect(() => {
+    if (ctxMenu) {
+      window.addEventListener("click", closeContextMenu);
+      return () => window.removeEventListener("click", closeContextMenu);
+    }
+  }, [ctxMenu, closeContextMenu]);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
     if (!container) return;
-    // 中クリック（ボタン1）または左クリック（ボタン0）でドラッグ
     isDragging.current = true;
     dragMoved.current = false;
     mouseDownPos.current = { x: e.clientX, y: e.clientY };
@@ -208,7 +250,6 @@ export function OverviewCanvas() {
     }
   };
 
-    // キーボードショートカット（入力フィールドフォーカス中は無効）
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -231,27 +272,49 @@ export function OverviewCanvas() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [clearSelected, undo, selectAll]);
 
-    // itemsPerLabel が変わったときに zoom をリセット
   useEffect(() => {
     setZoom(1);
   }, [layout.itemsPerLabel]);
 
-  // fit: コンテナ幅に合わせてズーム計算（左右いっぱいに広げる）
   const fitToWidth = () => {
     const container = containerRef.current;
     if (!container) return;
-    const containerW = container.clientWidth - 4; // padding分を引く
-    const baseCanvasW = grid.cols * cellW + padding * 2 + sizeMargin;
+    const containerW = container.clientWidth - 4;
+    const baseCanvasW = grid.cols * cellW + padding * 2 + sizeMargin + labelMargin;
     const newZoom = Math.max(0.3, Math.min(3, +(containerW / baseCanvasW).toFixed(2)));
     setZoom(newZoom);
-    // 左上にスクロール
     container.scrollLeft = 0;
     container.scrollTop = 0;
   };
 
+  const canCopyRight = selectedCol < grid.cols - 1;
+  const canCopyLeft = selectedCol > 0;
+  const canCopyUp = selectedRow > 0;
+  const canCopyDown = selectedRow < grid.rows - 1;
+
+  const ctxMenuItem = (label: string, onClick: () => void, disabled = false, hot?: string) => (
+    <button
+      className={`w-full text-left px-3 py-1.5 text-xs flex items-center justify-between ${
+        disabled ? "text-slate-300 cursor-default" : "text-slate-700 hover:bg-slate-100"
+      }`}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) {
+          onClick();
+          setCtxMenu(null);
+        }
+      }}
+    >
+      <span>{label}</span>
+      {hot && <span className="text-slate-400 text-[10px]">{hot}</span>}
+    </button>
+  );
+
+  const ctxMenuDivider = () => <div className="border-t border-slate-100 my-1" />;
+
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
-      {/* ツールバー */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white rounded-t-lg">
         <span className="text-xs font-medium text-slate-600">全体ビュー</span>
         <span className="text-xs text-slate-400">
@@ -263,7 +326,7 @@ export function OverviewCanvas() {
           <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.2).toFixed(2)))}>−</button>
-                    <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
+          <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={fitToWidth}>fit</button>
           <span className="text-slate-300 mx-1">|</span>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
@@ -273,23 +336,54 @@ export function OverviewCanvas() {
         </div>
       </div>
 
-            {/* キャンバス */}
       <div ref={containerRef} className="flex-1 overflow-auto p-2 cursor-grab active:cursor-grabbing select-none"
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}>
-        <canvas ref={canvasRef} onClick={handleClick} style={{ display: "block" }} />
+        <canvas ref={canvasRef} onClick={handleClick} onContextMenu={handleContextMenu} style={{ display: "block" }} />
       </div>
 
-      {/* 選択情報 */}
       <div className="px-3 py-1.5 border-t border-slate-200 bg-white rounded-b-lg text-xs text-slate-600">
         選択: {selectedRow + 1}-{selectedCol + 1}
         {selectedCells.size > 1 && ` (複数: ${selectedCells.size}セル)`}
         （{grid.cols * grid.rows}面中）
-        <span className="ml-2 text-slate-400">Ctrl/Shift+クリックで複数選択 | ドラッグで移動 | Delでクリア | Ctrl+Zで元に戻す</span>
+        <span className="ml-2 text-slate-400">右クリックでメニュー | Ctrl/Shift+クリックで複数選択 | ドラッグで移動 | Delでクリア | Ctrl+Zで戻す</span>
       </div>
+
+      {/* 右クリックメニュー */}
+      {ctxMenu && (
+        <div
+          className="fixed z-50 bg-white rounded-lg shadow-xl border border-slate-200 py-1 min-w-[160px]"
+          style={{ left: ctxMenu.x, top: ctxMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* コピー系 */}
+          {ctxMenuItem("コピー", () => copyToClipboard())}
+          {ctxMenuDivider()}
+          {ctxMenuItem("右にコピー", () => copyTo("right"), !canCopyRight)}
+          {ctxMenuItem("左にコピー", () => copyTo("left"), !canCopyLeft)}
+          {ctxMenuItem("上にコピー", () => copyTo("up"), !canCopyUp)}
+          {ctxMenuItem("下にコピー", () => copyTo("down"), !canCopyDown)}
+          {ctxMenuDivider()}
+          {/* 反転コピー系 */}
+          {ctxMenuItem("反転コピー", () => reverseCopyToClipboard())}
+          {ctxMenuDivider()}
+          {ctxMenuItem("右に反転コピー", () => reverseTo("right"), !canCopyRight)}
+          {ctxMenuItem("左に反転コピー", () => reverseTo("left"), !canCopyLeft)}
+          {ctxMenuItem("上に反転コピー", () => reverseTo("up"), !canCopyUp)}
+          {ctxMenuItem("下に反転コピー", () => reverseTo("down"), !canCopyDown)}
+          {/* 貼り付け（クリップボードがある場合のみ） */}
+          {clipboard && ctxMenuDivider()}
+          {clipboard && clipboardMode === "copy" &&
+            ctxMenuItem("貼り付け", () => pasteFromClipboard())
+          }
+          {clipboard && clipboardMode === "reverse" &&
+            ctxMenuItem("反転貼り付け", () => pasteFromClipboard())
+          }
+        </div>
+      )}
     </div>
   );
 }
