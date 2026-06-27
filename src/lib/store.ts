@@ -43,25 +43,50 @@ function createEmptyGrid(
   return { cols, rows, labels };
 }
 
+function cloneGrid(grid: SheetGrid): SheetGrid {
+  return {
+    ...grid,
+    labels: grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
+    ),
+  };
+}
+
+/** 選択セルのキー */
+function cellKey(r: number, c: number): string {
+  return `${r},${c}`;
+}
+
 interface AppState {
   layout: LayoutConfig;
   grid: SheetGrid;
   selectedRow: number;
   selectedCol: number;
+  selectedCells: Set<string>; // 複数選択
   exportConfig: ExportConfig;
   presets: typeof DEFAULT_PRESETS;
   sizePresets: SizePreset[];
   clipboard: string[] | null;
+  clipboardMode: "copy" | "reverse" | null; // クリップボードの種類
+  history: SheetGrid[]; // undo 用履歴
+  historyIndex: number;
 
   setLayout: (layout: Partial<LayoutConfig>) => void;
   applyPreset: (index: number) => void;
-  selectLabel: (row: number, col: number) => void;
+  selectLabel: (row: number, col: number, ctrl?: boolean) => void;
+  selectAll: () => void;
   updateLabelRow: (labelRow: number, text: string) => void;
   toggleLabelDelimiter: () => void;
   reverseTo: (direction: ReverseDirection) => void;
+  reverseCopyToClipboard: () => void;
   copyTo: (direction: ReverseDirection) => void;
   copyToClipboard: () => void;
   pasteFromClipboard: () => void;
+  clearSelected: () => void;
+  undo: () => void;
   setExportConfig: (config: Partial<ExportConfig>) => void;
   addPreset: (name: string) => void;
   deletePreset: (index: number) => void;
@@ -78,11 +103,23 @@ const initialGrid = createEmptyGrid(
   initialLayout.itemsPerLabel
 );
 
+function pushHistory(state: AppState): Partial<AppState> {
+  const newHistory = state.history.slice(0, state.historyIndex + 1);
+  newHistory.push(cloneGrid(state.grid));
+  // 最大50件
+  if (newHistory.length > 50) newHistory.shift();
+  return {
+    history: newHistory,
+    historyIndex: newHistory.length - 1,
+  };
+}
+
 export const useStore = create<AppState>((set, get) => ({
   layout: initialLayout,
   grid: initialGrid,
   selectedRow: 0,
   selectedCol: 0,
+  selectedCells: new Set<string>(),
   exportConfig: {
     encoding: "shift_jis",
     withHeader: true,
@@ -91,6 +128,9 @@ export const useStore = create<AppState>((set, get) => ({
   presets: DEFAULT_PRESETS,
   sizePresets: DEFAULT_SIZE_PRESETS,
   clipboard: null,
+  clipboardMode: null,
+  history: [cloneGrid(initialGrid)],
+  historyIndex: 0,
 
   setLayout: (partial) => {
     const newLayout = { ...get().layout, ...partial };
@@ -99,11 +139,14 @@ export const useStore = create<AppState>((set, get) => ({
       newLayout.blockRows,
       newLayout.itemsPerLabel
     );
+    const hist = pushHistory(get());
     set({
+      ...hist,
       layout: newLayout,
       grid: newGrid,
       selectedRow: 0,
       selectedCol: 0,
+      selectedCells: new Set<string>(),
     });
   },
 
@@ -115,16 +158,46 @@ export const useStore = create<AppState>((set, get) => ({
       preset.layout.blockRows,
       preset.layout.itemsPerLabel
     );
+    const hist = pushHistory(get());
     set({
+      ...hist,
       layout: { ...preset.layout },
       grid: newGrid,
       selectedRow: 0,
       selectedCol: 0,
+      selectedCells: new Set<string>(),
     });
   },
 
-  selectLabel: (row, col) => {
-    set({ selectedRow: row, selectedCol: col });
+  selectLabel: (row, col, ctrl) => {
+    const { selectedCells } = get();
+    if (ctrl) {
+      const key = cellKey(row, col);
+      const next = new Set(selectedCells);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      set({ selectedRow: row, selectedCol: col, selectedCells: next });
+    } else {
+      set({
+        selectedRow: row,
+        selectedCol: col,
+        selectedCells: new Set<string>([cellKey(row, col)]),
+      });
+    }
+  },
+
+  selectAll: () => {
+    const { grid } = get();
+    const all = new Set<string>();
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        all.add(cellKey(r, c));
+      }
+    }
+    set({ selectedCells: all });
   },
 
   updateLabelRow: (labelRow, text) => {
@@ -139,7 +212,8 @@ export const useStore = create<AppState>((set, get) => ({
     if (label && labelRow >= 0 && labelRow < label.rows.length) {
       label.rows[labelRow].text = text;
     }
-    set({ grid: { ...grid, labels: newLabels } });
+    const hist = pushHistory(get());
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
   toggleLabelDelimiter: () => {
@@ -151,7 +225,8 @@ export const useStore = create<AppState>((set, get) => ({
     if (label) {
       label.useDelimiter = !(label.useDelimiter ?? true);
     }
-    set({ grid: { ...grid, labels: newLabels } });
+    const hist = pushHistory(get());
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
   reverseTo: (direction) => {
@@ -175,42 +250,46 @@ export const useStore = create<AppState>((set, get) => ({
     let targetRow = selectedRow;
     let targetCol = selectedCol;
     switch (direction) {
-      case "right":
-        targetCol = selectedCol + 1;
-        break;
-      case "left":
-        targetCol = selectedCol - 1;
-        break;
-      case "down":
-        targetRow = selectedRow + 1;
-        break;
-      case "up":
-        targetRow = selectedRow - 1;
-        break;
+      case "right": targetCol = selectedCol + 1; break;
+      case "left": targetCol = selectedCol - 1; break;
+      case "down": targetRow = selectedRow + 1; break;
+      case "up": targetRow = selectedRow - 1; break;
     }
 
-    if (
-      targetRow < 0 ||
-      targetRow >= grid.rows ||
-      targetCol < 0 ||
-      targetCol >= grid.cols
-    ) {
-      return;
-    }
+    if (targetRow < 0 || targetRow >= grid.rows || targetCol < 0 || targetCol >= grid.cols) return;
 
+    const hist = pushHistory(get());
     const newLabels = grid.labels.map((rowArr) =>
       rowArr.map((l) => ({
         ...l,
         rows: l.rows.map((r) => ({ ...r })),
       }))
     );
-
     const targetLabel = newLabels[targetRow][targetCol];
     for (let i = 0; i < targetLabel.rows.length; i++) {
       targetLabel.rows[i].text = reversed[i] ?? "";
     }
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
+  },
 
-    set({ grid: { ...grid, labels: newLabels } });
+  reverseCopyToClipboard: () => {
+    const { grid, selectedRow, selectedCol, layout } = get();
+    const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
+    if (!sourceLabel) return;
+
+    const useDelim = sourceLabel.useDelimiter ?? true;
+    const delimIdx = useDelim && layout.delimiter
+      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      : -1;
+    const used = sourceLabel.rows.some(
+      (row, i) => i !== delimIdx && row.text.trim() !== ""
+    );
+    const sourceTexts = sourceLabel.rows.map((r, i) =>
+      i === delimIdx && used ? layout.delimiter : r.text
+    );
+    const reversed = buildReversedLabel(sourceTexts, layout.delimiter);
+    if (!reversed) return;
+    set({ clipboard: reversed, clipboardMode: "reverse" });
   },
 
   copyTo: (direction) => {
@@ -221,36 +300,21 @@ export const useStore = create<AppState>((set, get) => ({
     let targetRow = selectedRow;
     let targetCol = selectedCol;
     switch (direction) {
-      case "right":
-        targetCol = selectedCol + 1;
-        break;
-      case "left":
-        targetCol = selectedCol - 1;
-        break;
-      case "down":
-        targetRow = selectedRow + 1;
-        break;
-      case "up":
-        targetRow = selectedRow - 1;
-        break;
+      case "right": targetCol = selectedCol + 1; break;
+      case "left": targetCol = selectedCol - 1; break;
+      case "down": targetRow = selectedRow + 1; break;
+      case "up": targetRow = selectedRow - 1; break;
     }
 
-    if (
-      targetRow < 0 ||
-      targetRow >= grid.rows ||
-      targetCol < 0 ||
-      targetCol >= grid.cols
-    ) {
-      return;
-    }
+    if (targetRow < 0 || targetRow >= grid.rows || targetCol < 0 || targetCol >= grid.cols) return;
 
+    const hist = pushHistory(get());
     const newLabels = grid.labels.map((rowArr) =>
       rowArr.map((l) => ({
         ...l,
         rows: l.rows.map((r) => ({ ...r })),
       }))
     );
-
     const targetLabel = newLabels[targetRow][targetCol];
     const useDelim = sourceLabel.useDelimiter ?? true;
     const delimIdx = useDelim && layout.delimiter
@@ -267,8 +331,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     }
     targetLabel.useDelimiter = sourceLabel.useDelimiter;
-
-    set({ grid: { ...grid, labels: newLabels } });
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
   copyToClipboard: () => {
@@ -283,17 +346,17 @@ export const useStore = create<AppState>((set, get) => ({
     const used = sourceLabel.rows.some(
       (row, i) => i !== delimIdx && row.text.trim() !== ""
     );
-
     const texts = sourceLabel.rows.map((r, i) =>
       i === delimIdx && used ? layout.delimiter : r.text
     );
-    set({ clipboard: texts });
+    set({ clipboard: texts, clipboardMode: "copy" });
   },
 
   pasteFromClipboard: () => {
-    const { grid, selectedRow, selectedCol, clipboard } = get();
+    const { grid, selectedCells, clipboard } = get();
     if (!clipboard) return;
 
+    const hist = pushHistory(get());
     const newLabels = grid.labels.map((rowArr) =>
       rowArr.map((l) => ({
         ...l,
@@ -301,14 +364,46 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     );
 
-    const targetLabel = newLabels[selectedRow]?.[selectedCol];
-    if (!targetLabel) return;
-
-    for (let i = 0; i < targetLabel.rows.length; i++) {
-      targetLabel.rows[i].text = clipboard[i] ?? "";
+    // 複数選択されたセルすべてに貼り付け
+    for (const key of selectedCells) {
+      const [r, c] = key.split(",").map(Number);
+      const targetLabel = newLabels[r]?.[c];
+      if (!targetLabel) continue;
+      for (let i = 0; i < targetLabel.rows.length; i++) {
+        targetLabel.rows[i].text = clipboard[i] ?? "";
+      }
     }
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
+  },
 
-    set({ grid: { ...grid, labels: newLabels } });
+  clearSelected: () => {
+    const { grid, selectedCells } = get();
+    if (selectedCells.size === 0) return;
+
+    const hist = pushHistory(get());
+    const newLabels = grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
+    );
+    for (const key of selectedCells) {
+      const [r, c] = key.split(",").map(Number);
+      const targetLabel = newLabels[r]?.[c];
+      if (!targetLabel) continue;
+      for (let i = 0; i < targetLabel.rows.length; i++) {
+        targetLabel.rows[i].text = "";
+      }
+    }
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
+  },
+
+  undo: () => {
+    const { history, historyIndex } = get();
+    if (historyIndex <= 0) return;
+    const newIndex = historyIndex - 1;
+    const prevGrid = cloneGrid(history[newIndex]);
+    set({ grid: prevGrid, historyIndex: newIndex });
   },
 
   setExportConfig: (partial) => {

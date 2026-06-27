@@ -94,42 +94,49 @@ export function LayoutConfigPanel() {
       {/* ラベルサイズ */}
       <div>
         <label className="block text-xs font-medium text-slate-600 mb-1">ラベルサイズ</label>
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-500">幅</label>
-          <input
-            type="number"
-            min={1}
-            step={0.1}
-            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={layout.labelSize.widthMm}
-            onChange={(e) =>
-              setLayout({
-                labelSize: {
-                  ...layout.labelSize,
-                  widthMm: Math.max(1, Number(e.target.value) || 1),
-                },
-              })
-            }
-          />
-          <span className="text-xs text-slate-500">mm</span>
-          <span className="text-slate-300">×</span>
-          <label className="text-xs text-slate-500">高さ</label>
-          <input
-            type="number"
-            min={1}
-            step={0.1}
-            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={layout.labelSize.heightMm}
-            onChange={(e) =>
-              setLayout({
-                labelSize: {
-                  ...layout.labelSize,
-                  heightMm: Math.max(1, Number(e.target.value) || 1),
-                },
-              })
-            }
-          />
-          <span className="text-xs text-slate-500">mm</span>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-xs text-slate-500 mb-0.5">幅</label>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={0.1}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                value={layout.labelSize.widthMm}
+                onChange={(e) =>
+                  setLayout({
+                    labelSize: {
+                      ...layout.labelSize,
+                      widthMm: Math.max(1, Number(e.target.value) || 1),
+                    },
+                  })
+                }
+              />
+              <span className="text-xs text-slate-500">mm</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs text-slate-500 mb-0.5">高さ</label>
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min={1}
+                step={0.1}
+                className="w-full border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+                value={layout.labelSize.heightMm}
+                onChange={(e) =>
+                  setLayout({
+                    labelSize: {
+                      ...layout.labelSize,
+                      heightMm: Math.max(1, Number(e.target.value) || 1),
+                    },
+                  })
+                }
+              />
+              <span className="text-xs text-slate-500">mm</span>
+            </div>
+          </div>
         </div>
 
         {/* サイズプリセット */}

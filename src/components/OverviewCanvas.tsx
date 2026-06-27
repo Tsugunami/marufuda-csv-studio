@@ -3,10 +3,17 @@ import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { getLabelDisplayTexts, isLabelUsed } from "../lib/label-utils";
 
+function cellKey(r: number, c: number): string {
+  return `${r},${c}`;
+}
+
 export function OverviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { grid, selectedRow, selectedCol, selectLabel, layout } = useStore();
+  const {
+    grid, selectedRow, selectedCol, selectedCells, selectLabel, selectAll, layout,
+    clearSelected, undo, clipboard, clipboardMode,
+  } = useStore();
   const [zoom, setZoom] = useState(1);
 
   // アスペクト比を維持しつつ、全行が見えるセルサイズを計算
@@ -19,7 +26,6 @@ export function OverviewCanvas() {
   const cellW = Math.max(baseW, minCellH / aspect);
   const cellH = cellW * aspect;
   const padding = 20;
-  // サイズ表示用の余白（上・左）
   const sizeMargin = 18;
 
   const draw = useCallback(() => {
@@ -40,18 +46,12 @@ export function OverviewCanvas() {
     ctx.scale(zoom, zoom);
     ctx.translate(padding + sizeMargin, padding + sizeMargin);
 
-    // 左上ブロックのサイズ表示（幅: 上、高さ: 左）
+    // 左上ブロックのサイズ表示
     ctx.fillStyle = "#64748b";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
-    // 幡表示（1つ目のセルの上）
-    ctx.fillText(
-      `← ${layout.labelSize.widthMm}mm →`,
-      cellW / 2,
-      -4
-    );
-    // 高さ表示（1つ目のセルの左）
+    ctx.fillText(`← ${layout.labelSize.widthMm}mm →`, cellW / 2, -4);
     ctx.save();
     ctx.translate(-6, cellH / 2);
     ctx.rotate(-Math.PI / 2);
@@ -67,7 +67,7 @@ export function OverviewCanvas() {
         const y = r * cellH;
         const label = grid.labels[r]?.[c];
         const isSelected = r === selectedRow && c === selectedCol;
-        // ラベルごとの delimIdx を計算
+        const isMultiSelected = selectedCells.has(cellKey(r, c));
         const labelUseDelim = label ? (label.useDelimiter ?? true) : true;
         const labelDelimIdx = labelUseDelim && layout.delimiter
           ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
@@ -75,17 +75,26 @@ export function OverviewCanvas() {
         const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
 
         // 背景
-        if (isSelected) ctx.fillStyle = "#dbeafe";
+        if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
+        else if (isSelected) ctx.fillStyle = "#dbeafe";
         else if (hasData) ctx.fillStyle = "#f0fdf4";
         else ctx.fillStyle = "#ffffff";
         ctx.fillRect(x, y, cellW - 2, cellH - 2);
 
         // 枠
-        ctx.strokeStyle = isSelected ? "#2563eb" : "#cbd5e1";
-        ctx.lineWidth = isSelected ? 2 : 1;
+        if (isSelected) {
+          ctx.strokeStyle = "#2563eb";
+          ctx.lineWidth = 2;
+        } else if (isMultiSelected) {
+          ctx.strokeStyle = "#f59e0b";
+          ctx.lineWidth = 2;
+        } else {
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.lineWidth = 1;
+        }
         ctx.strokeRect(x, y, cellW - 2, cellH - 2);
 
-        // 行データプレビュー（センター揃え）
+        // 行データプレビュー
         if (label) {
           const displayTexts = getLabelDisplayTexts(label, layout);
           ctx.font = "9px sans-serif";
@@ -107,8 +116,19 @@ export function OverviewCanvas() {
       }
     }
 
+    // クリップボード状態の表示
+    if (clipboard) {
+      ctx.fillStyle = clipboardMode === "reverse" ? "rgba(139,92,246,0.15)" : "rgba(249,115,22,0.15)";
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillStyle = clipboardMode === "reverse" ? "#7c3aed" : "#ea580c";
+      const modeText = clipboardMode === "reverse" ? "反転コピー済み" : "コピー済み";
+      ctx.fillText(`📋 ${modeText} — セル選択後に貼付ボタン`, padding + sizeMargin, -sizeMargin + 2);
+    }
+
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin]);
+  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, clipboard, clipboardMode]);
 
   useEffect(() => {
     draw();
@@ -126,7 +146,7 @@ export function OverviewCanvas() {
     const col = Math.floor(x / cellW);
     const row = Math.floor(y / cellH);
     if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
-      selectLabel(row, col);
+      selectLabel(row, col, e.ctrlKey || e.metaKey);
     }
   };
 
@@ -137,6 +157,29 @@ export function OverviewCanvas() {
       setZoom((z) => Math.min(3, Math.max(0.3, +(z + delta).toFixed(2))));
     }
   };
+
+    // キーボードショートカット（入力フィールドフォーカス中は無効）
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const tag = target?.tagName;
+      const isInputField = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable;
+      if (isInputField) return;
+
+      if (e.key === "Delete" || e.key === "Del") {
+        e.preventDefault();
+        clearSelected();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+        e.preventDefault();
+        selectAll();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [clearSelected, undo, selectAll]);
 
   // itemsPerLabel が変わったときに zoom をリセット
   useEffect(() => {
@@ -159,6 +202,11 @@ export function OverviewCanvas() {
             onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.2).toFixed(2)))}>−</button>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={() => setZoom(1)}>fit</button>
+          <span className="text-slate-300 mx-1">|</span>
+          <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
+            onClick={undo} title="元に戻す (Ctrl+Z)">↩ 戻す</button>
+          <button className="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"
+            onClick={clearSelected} title="選択セルをクリア (Del)">🗑 クリア</button>
         </div>
       </div>
 
@@ -169,7 +217,10 @@ export function OverviewCanvas() {
 
       {/* 選択情報 */}
       <div className="px-3 py-1.5 border-t border-slate-200 bg-white rounded-b-lg text-xs text-slate-600">
-        選択: {selectedRow + 1}-{selectedCol + 1} （{grid.cols * grid.rows}面中）
+        選択: {selectedRow + 1}-{selectedCol + 1}
+        {selectedCells.size > 1 && ` (複数: ${selectedCells.size}セル)`}
+        （{grid.cols * grid.rows}面中）
+        <span className="ml-2 text-slate-400">Ctrl+クリックで複数選択 | Delでクリア | Ctrl+Zで元に戻す</span>
       </div>
     </div>
   );
