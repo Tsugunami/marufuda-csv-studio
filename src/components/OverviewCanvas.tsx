@@ -103,20 +103,23 @@ export function OverviewCanvas() {
         }
         ctx.strokeRect(x, y, cellW - 2, cellH - 2);
 
-        // 行データプレビュー
+                // 行データプレビュー（上下左右中央揃え）
         if (label) {
           const displayTexts = getLabelDisplayTexts(label, layout);
           ctx.font = "9px sans-serif";
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const centerX = x + (cellW - 2) / 2;
+          // 行データ全体をセルの上下中央に配置
+          const totalH = displayTexts.length * rowLineH;
+          const startY = y + (cellH - totalH) / 2 + rowLineH / 2;
           for (let i = 0; i < displayTexts.length; i++) {
             const text = displayTexts[i];
             if (text.trim() === "") continue;
             const isDelim = i === labelDelimIdx;
             ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
             const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
-            const lineY = y + cellHeaderH + rowLineH / 2 + i * rowLineH;
+            const lineY = startY + i * rowLineH;
             ctx.fillText(displayText, centerX, lineY);
           }
           ctx.textAlign = "start";
@@ -159,8 +162,8 @@ export function OverviewCanvas() {
 
     const col = Math.floor(x / cellW);
     const row = Math.floor(y / cellH);
-    if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
-      selectLabel(row, col, e.ctrlKey || e.metaKey || e.shiftKey);
+        if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
+      selectLabel(row, col, e.ctrlKey || e.metaKey, e.shiftKey);
     }
   };
 
@@ -228,10 +231,23 @@ export function OverviewCanvas() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [clearSelected, undo, selectAll]);
 
-  // itemsPerLabel が変わったときに zoom をリセット
+    // itemsPerLabel が変わったときに zoom をリセット
   useEffect(() => {
     setZoom(1);
   }, [layout.itemsPerLabel]);
+
+  // fit: コンテナ幅に合わせてズーム計算（左右いっぱいに広げる）
+  const fitToWidth = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    const containerW = container.clientWidth - 4; // padding分を引く
+    const baseCanvasW = grid.cols * cellW + padding * 2 + sizeMargin;
+    const newZoom = Math.max(0.3, Math.min(3, +(containerW / baseCanvasW).toFixed(2)));
+    setZoom(newZoom);
+    // 左上にスクロール
+    container.scrollLeft = 0;
+    container.scrollTop = 0;
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
@@ -247,8 +263,8 @@ export function OverviewCanvas() {
           <span className="text-xs text-slate-500 w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={() => setZoom((z) => Math.max(0.3, +(z - 0.2).toFixed(2)))}>−</button>
-          <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
-            onClick={() => setZoom(1)}>fit</button>
+                    <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
+            onClick={fitToWidth}>fit</button>
           <span className="text-slate-300 mx-1">|</span>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={undo} title="元に戻す (Ctrl+Z)">↩ 戻す</button>

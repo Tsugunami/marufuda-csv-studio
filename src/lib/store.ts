@@ -60,6 +60,16 @@ function cellKey(r: number, c: number): string {
   return `${r},${c}`;
 }
 
+/** プロジェクト保存・再開用データ */
+export interface ProjectData {
+  version: number;
+  grid: SheetGrid;
+  layout: LayoutConfig;
+  presets: Preset[];
+  sizePresets: SizePreset[];
+  exportConfig: ExportConfig;
+}
+
 interface AppState {
   layout: LayoutConfig;
   grid: SheetGrid;
@@ -76,7 +86,7 @@ interface AppState {
 
   setLayout: (layout: Partial<LayoutConfig>) => void;
   applyPreset: (index: number) => void;
-  selectLabel: (row: number, col: number, multi?: boolean) => void;
+  selectLabel: (row: number, col: number, multi?: boolean, range?: boolean) => void;
   selectAll: () => void;
   updateLabelRow: (labelRow: number, text: string) => void;
   toggleLabelDelimiter: () => void;
@@ -93,6 +103,10 @@ interface AppState {
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
   applySizePreset: (index: number) => void;
+  resetPresets: () => void;
+  resetSizePresets: () => void;
+  getProjectData: () => ProjectData;
+  loadProjectData: (data: ProjectData) => void;
 }
 
 const initialLayout: LayoutConfig = DEFAULT_PRESETS[0].layout;
@@ -169,9 +183,22 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-    selectLabel: (row, col, multi) => {
-    const { selectedCells } = get();
-    if (multi) {
+        selectLabel: (row, col, multi, range) => {
+    const { selectedCells, selectedRow, selectedCol } = get();
+    if (range) {
+      // Shift+クリック: 前回選択セルから今回クリックセルまでの矩形範囲をすべて選択
+      const minRow = Math.min(selectedRow, row);
+      const maxRow = Math.max(selectedRow, row);
+      const minCol = Math.min(selectedCol, col);
+      const maxCol = Math.max(selectedCol, col);
+      const next = new Set<string>();
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          next.add(cellKey(r, c));
+        }
+      }
+      set({ selectedRow: row, selectedCol: col, selectedCells: next });
+    } else if (multi) {
       const key = cellKey(row, col);
       const next = new Set(selectedCells);
       if (next.has(key)) {
@@ -417,9 +444,8 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presets: [...presets, newPreset] });
   },
 
-  deletePreset: (index) => {
+    deletePreset: (index) => {
     const { presets } = get();
-    if (index < DEFAULT_PRESETS.length) return;
     set({ presets: presets.filter((_, i) => i !== index) });
   },
 
@@ -432,17 +458,60 @@ export const useStore = create<AppState>((set, get) => ({
     set({ sizePresets: [...sizePresets, newSizePreset] });
   },
 
-  deleteSizePreset: (index) => {
+    deleteSizePreset: (index) => {
     const { sizePresets } = get();
-    if (index < DEFAULT_SIZE_PRESETS.length) return;
     set({ sizePresets: sizePresets.filter((_, i) => i !== index) });
   },
 
-  applySizePreset: (index) => {
+    applySizePreset: (index) => {
     const { sizePresets } = get();
     const preset = sizePresets[index];
     if (!preset) return;
     set({ layout: { ...get().layout, labelSize: { ...preset.labelSize } } });
+  },
+
+  resetPresets: () => {
+    set({ presets: [...DEFAULT_PRESETS] });
+  },
+
+  resetSizePresets: () => {
+    set({ sizePresets: [...DEFAULT_SIZE_PRESETS] });
+  },
+
+  getProjectData: () => {
+    const { grid, layout, presets, sizePresets, exportConfig } = get();
+    return {
+      version: 1,
+      grid: cloneGrid(grid),
+      layout: { ...layout },
+      presets: presets.map((p) => ({ name: p.name, layout: { ...p.layout } })),
+      sizePresets: sizePresets.map((p) => ({
+        name: p.name,
+        labelSize: { ...p.labelSize },
+      })),
+      exportConfig: { ...exportConfig },
+    };
+  },
+
+  loadProjectData: (data) => {
+    const newGrid = cloneGrid(data.grid);
+    set({
+      grid: newGrid,
+      layout: { ...data.layout },
+      presets: data.presets.map((p) => ({ name: p.name, layout: { ...p.layout } })),
+      sizePresets: data.sizePresets.map((p) => ({
+        name: p.name,
+        labelSize: { ...p.labelSize },
+      })),
+      exportConfig: { ...data.exportConfig },
+      selectedRow: 0,
+      selectedCol: 0,
+      selectedCells: new Set<string>(),
+      clipboard: null,
+      clipboardMode: null,
+      history: [cloneGrid(newGrid)],
+      historyIndex: 0,
+    });
   },
 }));
 

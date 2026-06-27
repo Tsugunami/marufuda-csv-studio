@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { useStore } from "../lib/store";
-import { DEFAULT_PRESETS } from "../lib/presets";
-import { DEFAULT_SIZE_PRESETS } from "../lib/size-presets";
 
 export function LayoutConfigPanel() {
-  const {
+    const {
     layout,
     setLayout,
     presets,
     applyPreset,
     addPreset,
     deletePreset,
+    resetPresets,
     sizePresets,
     applySizePreset,
     addSizePreset,
     deleteSizePreset,
+    resetSizePresets,
   } = useStore();
   const [newPresetName, setNewPresetName] = useState("");
   const [newSizePresetName, setNewSizePresetName] = useState("");
@@ -47,10 +47,8 @@ export function LayoutConfigPanel() {
           {presets.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-50">
               <span className="flex-1 truncate text-slate-700">{p.name}</span>
-              <button className="text-blue-500 hover:text-blue-700" onClick={() => applyPreset(i)} title="適用">適用</button>
-              {i >= DEFAULT_PRESETS.length && (
-                <button className="text-red-500 hover:text-red-700" onClick={() => deletePreset(i)} title="削除">✕</button>
-              )}
+                            <button className="text-blue-500 hover:text-blue-700" onClick={() => applyPreset(i)} title="適用">適用</button>
+              <button className="text-red-500 hover:text-red-700" onClick={() => deletePreset(i)} title="削除">✕</button>
             </div>
           ))}
         </div>
@@ -144,10 +142,8 @@ export function LayoutConfigPanel() {
           {sizePresets.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-50">
               <span className="flex-1 truncate text-slate-700">{p.name}</span>
-              <button className="text-blue-500 hover:text-blue-700" onClick={() => applySizePreset(i)} title="適用">適用</button>
-              {i >= DEFAULT_SIZE_PRESETS.length && (
-                <button className="text-red-500 hover:text-red-700" onClick={() => deleteSizePreset(i)} title="削除">✕</button>
-              )}
+                            <button className="text-blue-500 hover:text-blue-700" onClick={() => applySizePreset(i)} title="適用">適用</button>
+              <button className="text-red-500 hover:text-red-700" onClick={() => deleteSizePreset(i)} title="削除">✕</button>
             </div>
           ))}
         </div>
