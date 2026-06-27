@@ -59,6 +59,7 @@ interface AppState {
   selectLabel: (row: number, col: number) => void;
   updateLabelRow: (labelRow: number, text: string) => void;
   reverseTo: (direction: ReverseDirection) => void;
+  copyTo: (direction: ReverseDirection) => void;
   setExportConfig: (config: Partial<ExportConfig>) => void;
   addPreset: (name: string) => void;
   deletePreset: (index: number) => void;
@@ -184,6 +185,64 @@ export const useStore = create<AppState>((set, get) => ({
     const targetLabel = newLabels[targetRow][targetCol];
     for (let i = 0; i < targetLabel.rows.length; i++) {
       targetLabel.rows[i].text = reversed[i] ?? "";
+    }
+
+    set({ grid: { ...grid, labels: newLabels } });
+  },
+
+  copyTo: (direction) => {
+    const { grid, selectedRow, selectedCol, layout } = get();
+    const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
+    if (!sourceLabel) return;
+
+    // コピー先座標
+    let targetRow = selectedRow;
+    let targetCol = selectedCol;
+    switch (direction) {
+      case "right":
+        targetCol = selectedCol + 1;
+        break;
+      case "left":
+        targetCol = selectedCol - 1;
+        break;
+      case "down":
+        targetRow = selectedRow + 1;
+        break;
+      case "up":
+        targetRow = selectedRow - 1;
+        break;
+    }
+
+    if (
+      targetRow < 0 ||
+      targetRow >= grid.rows ||
+      targetCol < 0 ||
+      targetCol >= grid.cols
+    ) {
+      return; // 範囲外
+    }
+
+    const newLabels = grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
+    );
+
+    const targetLabel = newLabels[targetRow][targetCol];
+    // デリミタ行を補完してコピー
+    const delimIdx = layout.delimiter
+      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      : -1;
+    const used = sourceLabel.rows.some(
+      (row, i) => i !== delimIdx && row.text.trim() !== ""
+    );
+    for (let i = 0; i < targetLabel.rows.length; i++) {
+      if (i === delimIdx && used) {
+        targetLabel.rows[i].text = layout.delimiter;
+      } else {
+        targetLabel.rows[i].text = sourceLabel.rows[i]?.text ?? "";
+      }
     }
 
     set({ grid: { ...grid, labels: newLabels } });

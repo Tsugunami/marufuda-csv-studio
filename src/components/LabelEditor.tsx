@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { isLabelUsed } from "../lib/label-utils";
+import { DEFAULT_PRESETS } from "../lib/presets";
 
 export function LabelEditor() {
   const {
@@ -10,10 +12,14 @@ export function LabelEditor() {
     layout,
     updateLabelRow,
     reverseTo,
+    copyTo,
     setLayout,
     presets,
     applyPreset,
+    addPreset,
+    deletePreset,
   } = useStore();
+  const [newPresetName, setNewPresetName] = useState("");
 
   const label = grid.labels[selectedRow]?.[selectedCol];
 
@@ -138,8 +144,8 @@ export function LabelEditor() {
       </div>
 
       {/* 反転ツールバー */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
-        <p className="text-xs font-medium text-slate-600 mb-2">
+      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50">
+        <p className="text-sm font-bold text-slate-700 mb-2">
           反転コピー（「～」を境に入れ替え）
         </p>
         <div className="grid grid-cols-4 gap-2">
@@ -181,6 +187,79 @@ export function LabelEditor() {
             ※ デリミタが未設定です。レイアウト設定で「～」等を指定してください。
           </p>
         )}
+      </div>
+
+      {/* 通常コピーツールバー */}
+      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <p className="text-sm font-bold text-slate-700 mb-2">
+          通常コピー（そのまま複製）
+        </p>
+        <div className="grid grid-cols-4 gap-2">
+          <button
+            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={selectedCol >= grid.cols - 1}
+            onClick={() => copyTo("right")}
+            title="右隣へコピー"
+          >
+            → 右
+          </button>
+          <button
+            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={selectedCol <= 0}
+            onClick={() => copyTo("left")}
+            title="左隣へコピー"
+          >
+            ← 左
+          </button>
+          <button
+            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={selectedRow <= 0}
+            onClick={() => copyTo("up")}
+            title="上へコピー"
+          >
+            ↑ 上
+          </button>
+          <button
+            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={selectedRow >= grid.rows - 1}
+            onClick={() => copyTo("down")}
+            title="下へコピー"
+          >
+            ↓ 下
+          </button>
+        </div>
+      </div>
+
+      {/* プリセット管理 */}
+      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+        <p className="text-sm font-bold text-slate-700 mb-2">
+          プリセット管理
+        </p>
+        <div className="space-y-1 max-h-24 overflow-auto mb-2">
+          {presets.map((p, i) => (
+            <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-100">
+              <span className="flex-1 truncate text-slate-700">{p.name}</span>
+              <button className="text-blue-500 hover:text-blue-700" onClick={() => applyPreset(i)} title="適用">適用</button>
+              {i >= DEFAULT_PRESETS.length && (
+                <button className="text-red-500 hover:text-red-700" onClick={() => deletePreset(i)} title="削除">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-1">
+          <input
+            type="text"
+            className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder="新規プリセット名"
+            value={newPresetName}
+            onChange={(e) => setNewPresetName(e.target.value)}
+          />
+          <button
+            className="px-2 py-1 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+            disabled={!newPresetName.trim()}
+            onClick={() => { addPreset(newPresetName.trim()); setNewPresetName(""); }}
+          >追加</button>
+        </div>
       </div>
     </div>
   );

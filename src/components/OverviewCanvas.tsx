@@ -137,6 +137,11 @@ export function OverviewCanvas() {
     }
   };
 
+  // itemsPerLabel が変わったときに zoom をリセット
+  useEffect(() => {
+    setZoom(1);
+  }, [layout.itemsPerLabel]);
+
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
       {/* ツールバー */}
