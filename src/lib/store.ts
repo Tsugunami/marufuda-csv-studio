@@ -151,22 +151,33 @@ export const useStore = create<AppState>((set, get) => ({
   historyIndex: 0,
   csvFilename: "",
 
-  setLayout: (partial) => {
-    const newLayout = { ...get().layout, ...partial };
-    const newGrid = createEmptyGrid(
-      newLayout.blockCols,
-      newLayout.blockRows,
-      newLayout.itemsPerLabel
-    );
-    const hist = pushHistory(get());
-    set({
-      ...hist,
-      layout: newLayout,
-      grid: newGrid,
-      selectedRow: 0,
-      selectedCol: 0,
-      selectedCells: new Set<string>(),
-    });
+    setLayout: (partial) => {
+    const oldLayout = get().layout;
+    const newLayout = { ...oldLayout, ...partial };
+    const structChanged =
+      oldLayout.blockCols !== newLayout.blockCols ||
+      oldLayout.blockRows !== newLayout.blockRows ||
+      oldLayout.itemsPerLabel !== newLayout.itemsPerLabel;
+
+    if (structChanged) {
+      const newGrid = createEmptyGrid(
+        newLayout.blockCols,
+        newLayout.blockRows,
+        newLayout.itemsPerLabel
+      );
+      const hist = pushHistory(get());
+      set({
+        ...hist,
+        layout: newLayout,
+        grid: newGrid,
+        selectedRow: 0,
+        selectedCol: 0,
+        selectedCells: new Set<string>(),
+      });
+    } else {
+      // ブロック構造が変わらない場合はデータを保持
+      set({ layout: newLayout });
+    }
   },
 
   applyPreset: (index) => {
@@ -468,11 +479,11 @@ export const useStore = create<AppState>((set, get) => ({
     set({ sizePresets: sizePresets.filter((_, i) => i !== index) });
   },
 
-    applySizePreset: (index) => {
-    const { sizePresets } = get();
+      applySizePreset: (index) => {
+    const { sizePresets, setLayout } = get();
     const preset = sizePresets[index];
     if (!preset) return;
-    set({ layout: { ...get().layout, labelSize: { ...preset.labelSize } } });
+    setLayout({ labelSize: { ...preset.labelSize } });
   },
 
   resetPresets: () => {

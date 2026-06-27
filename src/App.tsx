@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { LayoutConfigPanel } from "./components/LayoutConfigPanel";
 import { OverviewCanvas } from "./components/OverviewCanvas";
 import { LabelEditor } from "./components/LabelEditor";
@@ -9,19 +9,22 @@ import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 
-interface CsvImportModalData {
+interface ImportModalData {
   filename: string;
+  csvTotalLabels: number;
+  csvItemsPerLabel: number;
   csvBlockCols: number;
   csvBlockRows: number;
-  csvItemsPerLabel: number;
-  csvTotalLabels: number;
   currentBlockCols: number;
   currentBlockRows: number;
   currentItemsPerLabel: number;
   currentTotalLabels: number;
-  matchingPresetIndex: number;
+  // 0=完全一致(通さない), 1=プリセット完全一致, 2=ブロック数一致のみ(行数違い)
+  matchType: 0 | 1 | 2;
+  matchingPresetName: string;
   csvRows: string[][];
   csvHasHeader: boolean;
+  newLayout: LayoutConfig;
 }
 
 export default function App() {
@@ -33,18 +36,11 @@ export default function App() {
     hasExistingData,
     importCsvData,
     setCsvFilename,
-    csvFilename,
     applyPreset,
   } = useStore();
   const [statusMsg, setStatusMsg] = useState("");
-  const [importModal, setImportModal] = useState<CsvImportModalData | null>(null);
+  const [importModal, setImportModal] = useState<ImportModalData | null>(null);
   const [overwriteModal, setOverwriteModal] = useState<{
-    filename: string;
-    csvRows: string[][];
-    csvHasHeader: boolean;
-    newLayout?: LayoutConfig;
-  } | null>(null);
-  const pendingImportRef = useRef<{
     csvRows: string[][];
     csvHasHeader: boolean;
     newLayout?: LayoutConfig;
@@ -89,6 +85,21 @@ export default function App() {
     }
   };
 
+  const doImport = (
+    csvRows: string[][],
+    csvHasHeader: boolean,
+    newLayout: LayoutConfig | undefined,
+    filename: string
+  ) => {
+    const ok = importCsvData(csvRows, csvHasHeader, newLayout);
+    if (ok) {
+      setCsvFilename(filename);
+      setStatusMsg(`CSV読込完了: ${filename}.csv`);
+    } else {
+      setStatusMsg("CSV読込エラー: データ構造が一致しません");
+    }
+  };
+
   const handleImportCsv = async () => {
     try {
       const filePath = await open({
@@ -107,42 +118,23 @@ export default function App() {
         return;
       }
 
-      // ファイル名を抽出（パスから）
       const filename = filePath.split(/[/\\]/).pop() || filePath;
       const baseName = filename.replace(/\.csv$/i, "");
 
-      // CSVのデータ行数と列数
       const dataRows = has_header ? rows.slice(1) : rows;
-      const csvCols = rows[0]?.length || 0;
+      const csvItemsPerLabel = rows[0]?.length || 0;
       const csvTotalLabels = dataRows.length;
-      const csvItemsPerLabel = csvCols;
 
-      // 現在のグリッド情報
       const currentTotalLabels = layout.blockCols * layout.blockRows;
       const currentItemsPerLabel = layout.itemsPerLabel;
 
-      // マッチするプリセットを検索
-      let matchingPresetIndex = -1;
-      for (let i = 0; i < presets.length; i++) {
-        const p = presets[i];
-        if (
-          p.layout.blockCols * p.layout.blockRows === csvTotalLabels &&
-          p.layout.itemsPerLabel === csvItemsPerLabel
-        ) {
-          matchingPresetIndex = i;
-          break;
-        }
-      }
-
-      // 現在のレイアウトが一致するか
-      const currentMatches =
-        currentTotalLabels === csvTotalLabels && currentItemsPerLabel === csvItemsPerLabel;
-
-      if (currentMatches) {
-        // 現在のレイアウトでそのまま読み込み可能
-        // ファイル名を自動設定
+      // 完全一致チェック
+      if (
+        currentTotalLabels === csvTotalLabels &&
+        currentItemsPerLabel === csvItemsPerLabel
+      ) {
+        // 現在のレイアウトでそのまま読込
         setCsvFilename(baseName);
-        // 既存データの上書き確認
         if (hasExistingData()) {
           setOverwriteModal({
             filename: baseName,
@@ -151,89 +143,111 @@ export default function App() {
             newLayout: undefined,
           });
         } else {
-          const ok = importCsvData(rows, has_header);
-          if (ok) {
-            setStatusMsg(`CSV読込完了: ${filename}`);
-          } else {
-            setStatusMsg("CSV読込エラー: データ構造が一致しません");
+          doImport(rows, has_header, undefined, baseName);
+        }
+        return;
+      }
+
+      // プリセットから完全一致を検索
+      let matchType: 0 | 1 | 2 = 0;
+      let matchingPresetName = "";
+      let csvBlockCols = 0;
+      let csvBlockRows = 0;
+      let newLayout: LayoutConfig = { ...layout };
+
+      for (let i = 0; i < presets.length; i++) {
+        const p = presets[i];
+        if (
+          p.layout.blockCols * p.layout.blockRows === csvTotalLabels &&
+          p.layout.itemsPerLabel === csvItemsPerLabel
+        ) {
+          matchType = 1;
+          matchingPresetName = p.name;
+          csvBlockCols = p.layout.blockCols;
+          csvBlockRows = p.layout.blockRows;
+          newLayout = { ...p.layout };
+          break;
+        }
+      }
+
+      // プリセット完全一致がなければ、ブロック数のみ一致するプリセットを検索
+      if (matchType === 0) {
+        for (let i = 0; i < presets.length; i++) {
+          const p = presets[i];
+          if (p.layout.blockCols * p.layout.blockRows === csvTotalLabels) {
+            matchType = 2;
+            matchingPresetName = p.name;
+            csvBlockCols = p.layout.blockCols;
+            csvBlockRows = p.layout.blockRows;
+            // プリセットのブロック構成を採用しつつ、ラベル内行数はCSVに合わせる
+            newLayout = {
+              ...p.layout,
+              itemsPerLabel: csvItemsPerLabel,
+            };
+            break;
           }
         }
-      } else {
-        // 次元が合わない → モーダル表示
-        let csvBlockCols = 0;
-        let csvBlockRows = 0;
-        if (matchingPresetIndex >= 0) {
-          csvBlockCols = presets[matchingPresetIndex].layout.blockCols;
-          csvBlockRows = presets[matchingPresetIndex].layout.blockRows;
-        } else {
-          // プリセットが見つからない場合は総数のみ表示
-          csvBlockCols = 0;
-          csvBlockRows = 0;
-        }
-        setImportModal({
-          filename: baseName,
-          csvBlockCols,
-          csvBlockRows,
-          csvItemsPerLabel,
-          csvTotalLabels,
-          currentBlockCols: layout.blockCols,
-          currentBlockRows: layout.blockRows,
-          currentItemsPerLabel: layout.itemsPerLabel,
-          currentTotalLabels,
-          matchingPresetIndex,
-          csvRows: rows,
-          csvHasHeader: has_header,
-        });
       }
+
+      // プリセットが見つからなくてもブロック数だけでも推測
+      if (matchType === 0) {
+        // 現在のブロック構成のまま行数だけ変更
+        if (currentTotalLabels === csvTotalLabels) {
+          matchType = 2;
+          matchingPresetName = "（現在の構成）";
+          csvBlockCols = layout.blockCols;
+          csvBlockRows = layout.blockRows;
+          newLayout = { ...layout, itemsPerLabel: csvItemsPerLabel };
+        } else {
+          // ブロック数も違う → 読込不可
+          setStatusMsg(
+            `CSV読込エラー: CSVのラベル数(${csvTotalLabels})が現在のブロック数(${currentTotalLabels})と一致しません。`
+          );
+          return;
+        }
+      }
+
+      setImportModal({
+        filename: baseName,
+        csvTotalLabels,
+        csvItemsPerLabel,
+        csvBlockCols,
+        csvBlockRows,
+        currentBlockCols: layout.blockCols,
+        currentBlockRows: layout.blockRows,
+        currentItemsPerLabel: layout.itemsPerLabel,
+        currentTotalLabels,
+        matchType,
+        matchingPresetName,
+        csvRows: rows,
+        csvHasHeader: has_header,
+        newLayout,
+      });
     } catch (e) {
       setStatusMsg(`CSV読込エラー: ${e}`);
     }
   };
 
-  const executeImport = (
-    csvRows: string[][],
-    csvHasHeader: boolean,
-    newLayout: LayoutConfig | undefined,
-    filename: string
-  ) => {
-    const ok = importCsvData(csvRows, csvHasHeader, newLayout);
-    if (ok) {
-      setCsvFilename(filename);
-      setStatusMsg(`CSV読込完了: ${filename}.csv`);
-    } else {
-      setStatusMsg("CSV読込エラー: データ構造が一致しません");
-    }
-  };
-
   const handleImportModalYes = () => {
     if (!importModal) return;
-    const { csvRows, csvHasHeader, matchingPresetIndex, filename } = importModal;
+    const { csvRows, csvHasHeader, newLayout, filename, matchType, matchingPresetName } = importModal;
 
-    if (matchingPresetIndex >= 0) {
-      // プリセットを切り替えてから読み込み
-      const preset = presets[matchingPresetIndex];
-      applyPreset(matchingPresetIndex);
-      // 既存データの上書き確認
-      if (hasExistingData()) {
-        pendingImportRef.current = {
-          csvRows,
-          csvHasHeader,
-          newLayout: { ...preset.layout },
-          filename,
-        };
-        setImportModal(null);
-        setOverwriteModal({
-          filename,
-          csvRows,
-          csvHasHeader,
-          newLayout: { ...preset.layout },
-        });
-      } else {
-        executeImport(csvRows, csvHasHeader, { ...preset.layout }, filename);
-        setImportModal(null);
-      }
+    // プリセット完全一致ならプリセット適用
+    if (matchType === 1) {
+      const presetIdx = presets.findIndex((p) => p.name === matchingPresetName);
+      if (presetIdx >= 0) applyPreset(presetIdx);
+    }
+
+    if (hasExistingData()) {
+      setImportModal(null);
+      setOverwriteModal({
+        filename,
+        csvRows,
+        csvHasHeader,
+        newLayout,
+      });
     } else {
-      setStatusMsg("一致するプリセットが見つかりません。手動でレイアウトを変更してください。");
+      doImport(csvRows, csvHasHeader, newLayout, filename);
       setImportModal(null);
     }
   };
@@ -241,7 +255,7 @@ export default function App() {
   const handleOverwriteYes = () => {
     if (!overwriteModal) return;
     const { csvRows, csvHasHeader, newLayout, filename } = overwriteModal;
-    executeImport(csvRows, csvHasHeader, newLayout, filename);
+    doImport(csvRows, csvHasHeader, newLayout, filename);
     setOverwriteModal(null);
   };
 
@@ -300,7 +314,7 @@ export default function App() {
         )}
       </footer>
 
-      {/* CSV読込 次元不一致モーダル */}
+      {/* CSV読込 レイアウト確認モーダル */}
       {importModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
@@ -309,30 +323,38 @@ export default function App() {
               <p>読み込みファイル名：<strong>{importModal.filename}</strong></p>
               <div className="border border-slate-200 rounded p-3 space-y-1">
                 <p className="font-medium text-slate-700">CSVの構成</p>
-                {importModal.matchingPresetIndex >= 0 ? (
-                  <>
-                    <p>シートブロック列数：{importModal.csvBlockCols}列</p>
-                    <p>シートブロック行数：{importModal.csvBlockRows}行</p>
-                    <p>ラベル内行数：{importModal.csvItemsPerLabel}行</p>
-                    <p>総ラベル数：{importModal.csvTotalLabels}面</p>
-                  </>
-                ) : (
-                  <>
-                    <p>ラベル内行数：{importModal.csvItemsPerLabel}行</p>
-                    <p>総ラベル数：{importModal.csvTotalLabels}面</p>
-                    <p className="text-red-600">一致するプリセットが見つかりません</p>
-                  </>
-                )}
+                <p>シートブロック列数：{importModal.csvBlockCols}列</p>
+                <p>シートブロック行数：{importModal.csvBlockRows}行</p>
+                <p>ラベル内行数：{importModal.csvItemsPerLabel}行</p>
+                <p>総ラベル数：{importModal.csvTotalLabels}面</p>
               </div>
               <div className="border border-slate-200 rounded p-3 space-y-1">
                 <p className="font-medium text-slate-700">現在のプリセット</p>
                 <p>{importModal.currentBlockCols}×{importModal.currentBlockRows}　{importModal.currentTotalLabels}面</p>
                 <p>ラベル内行数：{importModal.currentItemsPerLabel}行</p>
               </div>
-              {importModal.matchingPresetIndex >= 0 && (
+              {importModal.matchType === 1 && (
                 <p className="text-slate-700">
-                  構成が違うのでプリセット「{presets[importModal.matchingPresetIndex].name}」に切り替えて読み込みますか？
+                  構成が違うのでプリセット「{importModal.matchingPresetName}」に切り替えて読み込みますか？
                 </p>
+              )}
+              {importModal.matchType === 2 && (
+                <div className="space-y-1">
+                  <p className="text-amber-700 font-medium">
+                    ⚠ ラベル内行数が異なります
+                  </p>
+                  <p className="text-slate-700">
+                    ブロック数は一致しますが、ラベル内行数が
+                    <strong>{importModal.currentItemsPerLabel}行 → {importModal.csvItemsPerLabel}行</strong>
+                    に変更されます。
+                  </p>
+                  <p className="text-slate-500">
+                    ※ 行数が増えた場合は末尾に空行が追加されます。行数が減った場合は末尾のデータが切り捨てられます。
+                  </p>
+                  <p className="text-slate-700">
+                    「{importModal.matchingPresetName}」の構成で読み込みますか？
+                  </p>
+                </div>
               )}
             </div>
             <div className="flex gap-2 justify-end">
@@ -341,8 +363,7 @@ export default function App() {
                 onClick={() => setImportModal(null)}
               >いいえ</button>
               <button
-                className="px-4 py-1.5 text-xs rounded bg-brand-600 hover:bg-brand-700 text-white disabled:opacity-40"
-                disabled={importModal.matchingPresetIndex < 0}
+                className="px-4 py-1.5 text-xs rounded bg-brand-600 hover:bg-brand-700 text-white"
                 onClick={handleImportModalYes}
               >はい</button>
             </div>
