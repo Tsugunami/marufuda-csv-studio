@@ -1,5 +1,18 @@
 import type { DelimiterAlign } from "./types";
 
+/** デリミタとして認識する文字（半角・全角） */
+const DELIMITER_CHARS = ["～", "~"];
+
+/**
+ * テキストがデリミタ（半角~ / 全角～）かどうかを判定する。
+ * 前後の空白を除去して判定する。
+ */
+export function isDelimiterText(text: string): boolean {
+  const t = text.trim();
+  if (t === "") return false;
+  return DELIMITER_CHARS.includes(t);
+}
+
 /**
  * 「～」デリミタを挿入すべき行 index（0始まり）を計算する。
  *

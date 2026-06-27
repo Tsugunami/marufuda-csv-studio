@@ -7,8 +7,9 @@ import type {
   ReverseDirection,
   Preset,
   SizePreset,
+  DelimiterAlign,
 } from "./types";
-import { getDelimiterRowIndex } from "./delimiter";
+import { getDelimiterRowIndex, isDelimiterText } from "./delimiter";
 import { buildReversedLabel } from "./reverse";
 import { DEFAULT_PRESETS } from "./presets";
 import { DEFAULT_SIZE_PRESETS } from "./size-presets";
@@ -510,9 +511,8 @@ export const useStore = create<AppState>((set, get) => ({
     return false;
   },
 
-  importCsvData: (rows, hasHeader, newLayout) => {
+    importCsvData: (rows, hasHeader, newLayout) => {
     const state = get();
-    // レイアウトが指定されていれば切り替え
     const layout = newLayout ? { ...newLayout } : { ...state.layout };
     const dataRows = hasHeader ? rows.slice(1) : rows;
     const itemsPerLabel = layout.itemsPerLabel;
@@ -522,19 +522,77 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (dataRows.length !== totalLabels) return false;
 
-    // グリッド構築
+    // 第1パス: 最初のデリミタを検出し、delimiter と delimiterAlign を決定
+    let detectedDelimiter: string | null = null;
+    let detectedAlign: DelimiterAlign | null = null;
+
+    for (let i = 0; i < dataRows.length && detectedDelimiter === null; i++) {
+      const csvRow = dataRows[i] || [];
+      for (let j = 0; j < csvRow.length && j < itemsPerLabel; j++) {
+        if (isDelimiterText(csvRow[j])) {
+          detectedDelimiter = csvRow[j].trim();
+          if (itemsPerLabel % 2 === 1) {
+            detectedAlign = "center";
+          } else {
+            const half = itemsPerLabel / 2;
+            if (j === half - 1) {
+              detectedAlign = "self";
+            } else if (j === half) {
+              detectedAlign = "partner";
+            } else {
+              detectedAlign = layout.delimiterAlign;
+            }
+          }
+          break;
+        }
+      }
+    }
+
+    // 検出したデリミタと寄せをレイアウトに反映
+    if (detectedDelimiter !== null) {
+      layout.delimiter = detectedDelimiter;
+    }
+    if (detectedAlign !== null) {
+      layout.delimiterAlign = detectedAlign;
+    }
+
+    // デリミタ挿入位置の計算
+    const expectedDelimIdx = layout.delimiter
+      ? getDelimiterRowIndex(itemsPerLabel, layout.delimiterAlign)
+      : -1;
+
+    // 第2パス: グリッド構築
     const labels: Label[][] = [];
     for (let r = 0; r < blockRows; r++) {
       const row: Label[] = [];
       for (let c = 0; c < blockCols; c++) {
         const idx = r * blockCols + c;
         const csvRow = dataRows[idx] || [];
+
+        // このラベルにデリミタが含まれているかチェック
+        let hasDelim = false;
+        let delimPos = -1;
+        for (let i = 0; i < itemsPerLabel; i++) {
+          if (isDelimiterText(csvRow[i] ?? "")) {
+            hasDelim = true;
+            delimPos = i;
+            break;
+          }
+        }
+
+        const labelRows = Array.from({ length: itemsPerLabel }, (_, i) => {
+          const text = csvRow[i] ?? "";
+          // デリミタ行のテキストはクリア（表示時に layout.delimiter で自動補完される）
+          if (hasDelim && i === delimPos) {
+            return { text: "" };
+          }
+          return { text };
+        });
+
         row.push({
           id: nextId(),
-          rows: Array.from({ length: itemsPerLabel }, (_, i) => ({
-            text: csvRow[i] ?? "",
-          })),
-          useDelimiter: true,
+          rows: labelRows,
+          useDelimiter: hasDelim,
         });
       }
       labels.push(row);
