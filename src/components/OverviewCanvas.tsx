@@ -1,4 +1,7 @@
 import { useRef, useState, useCallback, useEffect } from "react";
+
+// ドラッグとクリックを区別する閾値（px）
+const DRAG_THRESHOLD = 5;
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { getLabelDisplayTexts, isLabelUsed } from "../lib/label-utils";
@@ -15,6 +18,12 @@ export function OverviewCanvas() {
     clearSelected, undo, clipboard, clipboardMode,
   } = useStore();
   const [zoom, setZoom] = useState(1);
+
+  // ドラッグ（つまみ移動）用の状態
+  const isDragging = useRef(false);
+  const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
+  const dragMoved = useRef(false);
+  const mouseDownPos = useRef({ x: 0, y: 0 });
 
   // アスペクト比を維持しつつ、全行が見えるセルサイズを計算
   const rowLineH = 11;
@@ -134,7 +143,12 @@ export function OverviewCanvas() {
     draw();
   }, [draw]);
 
-  const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    // ドラッグで移動した場合はクリックとして扱わない
+    if (dragMoved.current) {
+      dragMoved.current = false;
+      return;
+    }
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -146,8 +160,41 @@ export function OverviewCanvas() {
     const col = Math.floor(x / cellW);
     const row = Math.floor(y / cellH);
     if (row >= 0 && row < grid.rows && col >= 0 && col < grid.cols) {
-      selectLabel(row, col, e.ctrlKey || e.metaKey);
+      selectLabel(row, col, e.ctrlKey || e.metaKey || e.shiftKey);
     }
+  };
+
+  // ドラッグ開始（つまみ移動）
+  const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const container = containerRef.current;
+    if (!container) return;
+    // 中クリック（ボタン1）または左クリック（ボタン0）でドラッグ
+    isDragging.current = true;
+    dragMoved.current = false;
+    mouseDownPos.current = { x: e.clientX, y: e.clientY };
+    dragStart.current = {
+      x: e.clientX,
+      y: e.clientY,
+      scrollLeft: container.scrollLeft,
+      scrollTop: container.scrollTop,
+    };
+  };
+
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDragging.current) return;
+    const container = containerRef.current;
+    if (!container) return;
+    const dx = e.clientX - mouseDownPos.current.x;
+    const dy = e.clientY - mouseDownPos.current.y;
+    if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+      dragMoved.current = true;
+    }
+    container.scrollLeft = dragStart.current.scrollLeft - dx;
+    container.scrollTop = dragStart.current.scrollTop - dy;
+  };
+
+  const handleMouseUp = () => {
+    isDragging.current = false;
   };
 
   const handleWheel = (e: React.WheelEvent) => {
@@ -210,9 +257,14 @@ export function OverviewCanvas() {
         </div>
       </div>
 
-      {/* キャンバス */}
-      <div ref={containerRef} className="flex-1 overflow-auto p-2" onWheel={handleWheel}>
-        <canvas ref={canvasRef} onClick={handleClick} className="cursor-pointer" style={{ display: "block" }} />
+            {/* キャンバス */}
+      <div ref={containerRef} className="flex-1 overflow-auto p-2 cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        onWheel={handleWheel}>
+        <canvas ref={canvasRef} onClick={handleClick} style={{ display: "block" }} />
       </div>
 
       {/* 選択情報 */}
@@ -220,7 +272,7 @@ export function OverviewCanvas() {
         選択: {selectedRow + 1}-{selectedCol + 1}
         {selectedCells.size > 1 && ` (複数: ${selectedCells.size}セル)`}
         （{grid.cols * grid.rows}面中）
-        <span className="ml-2 text-slate-400">Ctrl+クリックで複数選択 | Delでクリア | Ctrl+Zで元に戻す</span>
+        <span className="ml-2 text-slate-400">Ctrl/Shift+クリックで複数選択 | ドラッグで移動 | Delでクリア | Ctrl+Zで元に戻す</span>
       </div>
     </div>
   );

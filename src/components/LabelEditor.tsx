@@ -178,7 +178,7 @@ export function LabelEditor() {
         </div>
                 {clipboardMode === "reverse" && (
           <p className="text-xs text-violet-600 mt-1 text-center">
-            ✓ セルを選択(Ctrl+クリックで複数)して「貼付」
+                        ✓ セルを選択(Ctrl/Shift+クリックで複数)して「貼付」
           </p>
         )}
       </div>
@@ -224,7 +224,7 @@ export function LabelEditor() {
         </div>
                 {clipboardMode === "copy" && (
           <p className="text-xs text-emerald-600 mt-1 text-center">
-            ✓ セルを選択(Ctrl+クリックで複数)して「貼付」
+                        ✓ セルを選択(Ctrl/Shift+クリックで複数)して「貼付」
           </p>
         )}
       </div>

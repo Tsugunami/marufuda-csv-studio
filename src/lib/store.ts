@@ -76,7 +76,7 @@ interface AppState {
 
   setLayout: (layout: Partial<LayoutConfig>) => void;
   applyPreset: (index: number) => void;
-  selectLabel: (row: number, col: number, ctrl?: boolean) => void;
+  selectLabel: (row: number, col: number, multi?: boolean) => void;
   selectAll: () => void;
   updateLabelRow: (labelRow: number, text: string) => void;
   toggleLabelDelimiter: () => void;
@@ -169,9 +169,9 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 
-  selectLabel: (row, col, ctrl) => {
+    selectLabel: (row, col, multi) => {
     const { selectedCells } = get();
-    if (ctrl) {
+    if (multi) {
       const key = cellKey(row, col);
       const next = new Set(selectedCells);
       if (next.has(key)) {
@@ -373,7 +373,8 @@ export const useStore = create<AppState>((set, get) => ({
         targetLabel.rows[i].text = clipboard[i] ?? "";
       }
     }
-    set({ ...hist, grid: { ...grid, labels: newLabels } });
+        // 貼り付け後はクリップボードをクリアしてコピーボタンに戻す
+    set({ ...hist, grid: { ...grid, labels: newLabels }, clipboard: null, clipboardMode: null });
   },
 
   clearSelected: () => {
