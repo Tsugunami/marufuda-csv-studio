@@ -1,12 +1,23 @@
 import { useState } from "react";
 import { useStore } from "../lib/store";
 import { DEFAULT_PRESETS } from "../lib/presets";
+import { DEFAULT_SIZE_PRESETS } from "../lib/size-presets";
 
 export function LayoutConfigPanel() {
-  const { layout, setLayout, presets, applyPreset, addPreset, deletePreset } =
-    useStore();
+  const {
+    layout,
+    setLayout,
+    presets,
+    applyPreset,
+    addPreset,
+    deletePreset,
+    sizePresets,
+    applySizePreset,
+    addSizePreset,
+    deleteSizePreset,
+  } = useStore();
   const [newPresetName, setNewPresetName] = useState("");
-  const isEven = layout.itemsPerLabel % 2 === 0;
+  const [newSizePresetName, setNewSizePresetName] = useState("");
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 space-y-4">
@@ -14,7 +25,7 @@ export function LayoutConfigPanel() {
         レイアウト設定
       </h2>
 
-      {/* プリセット */}
+      {/* レイアウトプリセット */}
       <div>
         <label className="block text-xs font-medium text-slate-600 mb-1">
           プリセット
@@ -32,7 +43,6 @@ export function LayoutConfigPanel() {
           ))}
         </select>
 
-        {/* プリセットリスト */}
         <div className="mt-2 space-y-1 max-h-32 overflow-auto">
           {presets.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-50">
@@ -45,7 +55,6 @@ export function LayoutConfigPanel() {
           ))}
         </div>
 
-        {/* プリセット追加 */}
         <div className="mt-2 flex gap-1">
           <input
             type="text"
@@ -82,43 +91,76 @@ export function LayoutConfigPanel() {
         </div>
       </div>
 
-      {/* 1ラベルあたり行数 */}
+      {/* ラベルサイズ */}
       <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">1ラベルあたり行数</label>
-        <input type="number" min={1} max={20}
-          className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          value={layout.itemsPerLabel}
-          onChange={(e) => setLayout({ itemsPerLabel: Math.max(1, Number(e.target.value) || 1) })}
-        />
-        <p className="text-xs text-slate-500 mt-1">総ラベル数: {layout.blockCols * layout.blockRows} 面</p>
+        <label className="block text-xs font-medium text-slate-600 mb-1">ラベルサイズ</label>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500">幅</label>
+          <input
+            type="number"
+            min={1}
+            step={0.1}
+            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={layout.labelSize.widthMm}
+            onChange={(e) =>
+              setLayout({
+                labelSize: {
+                  ...layout.labelSize,
+                  widthMm: Math.max(1, Number(e.target.value) || 1),
+                },
+              })
+            }
+          />
+          <span className="text-xs text-slate-500">mm</span>
+          <span className="text-slate-300">×</span>
+          <label className="text-xs text-slate-500">高さ</label>
+          <input
+            type="number"
+            min={1}
+            step={0.1}
+            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={layout.labelSize.heightMm}
+            onChange={(e) =>
+              setLayout({
+                labelSize: {
+                  ...layout.labelSize,
+                  heightMm: Math.max(1, Number(e.target.value) || 1),
+                },
+              })
+            }
+          />
+          <span className="text-xs text-slate-500">mm</span>
+        </div>
+
+        {/* サイズプリセット */}
+        <div className="mt-2 space-y-1 max-h-24 overflow-auto">
+          {sizePresets.map((p, i) => (
+            <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-50">
+              <span className="flex-1 truncate text-slate-700">{p.name}</span>
+              <button className="text-blue-500 hover:text-blue-700" onClick={() => applySizePreset(i)} title="適用">適用</button>
+              {i >= DEFAULT_SIZE_PRESETS.length && (
+                <button className="text-red-500 hover:text-red-700" onClick={() => deleteSizePreset(i)} title="削除">✕</button>
+              )}
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 flex gap-1">
+          <input
+            type="text"
+            className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder="サイズプリセット名"
+            value={newSizePresetName}
+            onChange={(e) => setNewSizePresetName(e.target.value)}
+          />
+          <button
+            className="px-2 py-1 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+            disabled={!newSizePresetName.trim()}
+            onClick={() => { addSizePreset(newSizePresetName.trim()); setNewSizePresetName(""); }}
+          >追加</button>
+        </div>
       </div>
 
-      {/* デリミタ */}
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">デリミタ文字</label>
-        <input type="text" maxLength={3}
-          className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          value={layout.delimiter}
-          onChange={(e) => setLayout({ delimiter: e.target.value })}
-          placeholder="～"
-        />
-      </div>
-
-      {/* ～寄せ */}
-      <div>
-        <label className="block text-xs font-medium text-slate-600 mb-1">「～」の寄せ（偶数行時）</label>
-        <select
-          className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100"
-          value={layout.delimiterAlign}
-          disabled={!isEven}
-          onChange={(e) => setLayout({ delimiterAlign: e.target.value as "center" | "self" | "partner" })}
-        >
-          <option value="center">中央（上側）</option>
-          <option value="self">自分側に寄せる（上）</option>
-          <option value="partner">相手側に寄せる（下）</option>
-        </select>
-        {!isEven && <p className="text-xs text-slate-400 mt-1">奇数行のため中央固定</p>}
-      </div>
+      <p className="text-xs text-slate-500 mt-1">総ラベル数: {layout.blockCols * layout.blockRows} 面</p>
     </div>
   );
 }

@@ -52,3 +52,9 @@ export interface Preset {
   name: string;
   layout: LayoutConfig;
 }
+
+/** サイズプリセット（ラベルサイズマージンサイズのみ） */
+export interface SizePreset {
+  name: string;
+  labelSize: LabelSize;
+}

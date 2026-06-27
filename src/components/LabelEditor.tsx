@@ -12,12 +12,14 @@ export function LabelEditor() {
     layout,
     updateLabelRow,
     reverseTo,
-    copyTo,
     setLayout,
     presets,
     applyPreset,
     addPreset,
     deletePreset,
+    clipboard,
+    copyToClipboard,
+    pasteFromClipboard,
   } = useStore();
   const [newPresetName, setNewPresetName] = useState("");
 
@@ -35,6 +37,8 @@ export function LabelEditor() {
     ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
     : -1;
   const used = isLabelUsed(label, delimIdx);
+  const hasDelimiter = !!layout.delimiter;
+  const isEven = layout.itemsPerLabel % 2 === 0;
 
   return (
     <div className="flex flex-col h-full bg-white rounded-lg border border-slate-200">
@@ -48,62 +52,38 @@ export function LabelEditor() {
         </h3>
       </div>
 
-      {/* ラベルサイズ + プリセット呼び出し */}
+      {/* 1行あたりの行数 + 接続詞 */}
       <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 space-y-2">
         <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-600 w-10">幅</label>
-          <input
-            type="number"
-            min={1}
-            step={0.1}
-            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={layout.labelSize.widthMm}
-            onChange={(e) =>
-              setLayout({
-                labelSize: {
-                  ...layout.labelSize,
-                  widthMm: Math.max(1, Number(e.target.value) || 1),
-                },
-              })
-            }
+          <label className="text-xs text-slate-600 whitespace-nowrap">1行あたりの行数</label>
+          <input type="number" min={1} max={20}
+            className="w-16 border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={layout.itemsPerLabel}
+            onChange={(e) => setLayout({ itemsPerLabel: Math.max(1, Number(e.target.value) || 1) })}
           />
-          <span className="text-xs text-slate-500">mm</span>
-          <span className="text-slate-300">×</span>
-          <label className="text-xs text-slate-600 w-10">高さ</label>
-          <input
-            type="number"
-            min={1}
-            step={0.1}
-            className="w-16 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value={layout.labelSize.heightMm}
-            onChange={(e) =>
-              setLayout({
-                labelSize: {
-                  ...layout.labelSize,
-                  heightMm: Math.max(1, Number(e.target.value) || 1),
-                },
-              })
-            }
-          />
-          <span className="text-xs text-slate-500">mm</span>
         </div>
-        {/* プリセット呼び出し */}
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-slate-600 whitespace-nowrap">サイズP</label>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">接続詞</label>
+          <input type="text" maxLength={3}
+            className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            value={layout.delimiter}
+            onChange={(e) => setLayout({ delimiter: e.target.value })}
+            placeholder="～"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">接続詞の寄せ（偶数行時）</label>
           <select
-            className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            value=""
-            onChange={(e) => {
-              if (e.target.value !== "") applyPreset(Number(e.target.value));
-            }}
+            className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 disabled:bg-slate-100"
+            value={layout.delimiterAlign}
+            disabled={!isEven}
+            onChange={(e) => setLayout({ delimiterAlign: e.target.value as "center" | "self" | "partner" })}
           >
-            <option value="">-- サイズプリセット --</option>
-            {presets.map((p, i) => (
-              <option key={i} value={i}>
-                {p.name} ({p.layout.labelSize.widthMm}×{p.layout.labelSize.heightMm}mm)
-              </option>
-            ))}
+            <option value="center">中央（上側）</option>
+            <option value="self">自分側に寄せる（上）</option>
+            <option value="partner">相手側に寄せる（下）</option>
           </select>
+          {!isEven && <p className="text-xs text-slate-400 mt-1">奇数行のため中央固定</p>}
         </div>
       </div>
 
@@ -111,7 +91,6 @@ export function LabelEditor() {
       <div className="flex-1 overflow-auto p-4 space-y-2">
         {label.rows.map((row, i) => {
           const isDelim = i === delimIdx;
-          // デリミタ行は使用中ラベルのみ表示、未使用なら空
           const displayValue = isDelim
             ? used
               ? layout.delimiter
@@ -143,91 +122,84 @@ export function LabelEditor() {
         })}
       </div>
 
-      {/* 反転ツールバー */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50">
+      {/* 反転コピー（十字型） */}
+      <div className={`px-4 py-3 border-t border-slate-200 bg-slate-50 ${!hasDelimiter ? "opacity-40 pointer-events-none" : ""}`}>
         <p className="text-sm font-bold text-slate-700 mb-2">
-          反転コピー（「～」を境に入れ替え）
+          反転コピー（「{layout.delimiter || "～"}」を境に入れ替え）
         </p>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="flex flex-col items-center gap-1">
           <button
-            className="px-2 py-2 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
-            disabled={selectedCol >= grid.cols - 1}
-            onClick={() => reverseTo("right")}
-            title="右隣へ反転"
-          >
-            → 右
-          </button>
-          <button
-            className="px-2 py-2 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
-            disabled={selectedCol <= 0}
-            onClick={() => reverseTo("left")}
-            title="左隣へ反転"
-          >
-            ← 左
-          </button>
-          <button
-            className="px-2 py-2 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+            className="w-20 px-2 py-1.5 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
             disabled={selectedRow <= 0}
             onClick={() => reverseTo("up")}
-            title="上へ反転"
-          >
-            ↑ 上
-          </button>
+          >↑ 上</button>
+          <div className="flex gap-1">
+            <button
+              className="w-20 px-2 py-1.5 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+              disabled={selectedCol <= 0}
+              onClick={() => reverseTo("left")}
+            >← 左</button>
+            <div className="w-20 px-2 py-1.5 text-xs rounded bg-slate-200 text-slate-400 text-center">
+              反転
+            </div>
+            <button
+              className="w-20 px-2 py-1.5 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+              disabled={selectedCol >= grid.cols - 1}
+              onClick={() => reverseTo("right")}
+            >右 →</button>
+          </div>
           <button
-            className="px-2 py-2 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
+            className="w-20 px-2 py-1.5 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-40"
             disabled={selectedRow >= grid.rows - 1}
             onClick={() => reverseTo("down")}
-            title="下へ反転"
-          >
-            ↓ 下
-          </button>
+          >↓ 下</button>
         </div>
-        {!layout.delimiter && (
-          <p className="text-xs text-amber-600 mt-2">
-            ※ デリミタが未設定です。レイアウト設定で「～」等を指定してください。
-          </p>
-        )}
       </div>
 
-      {/* 通常コピーツールバー */}
-      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50 rounded-b-lg">
+      {/* 通常コピー（十字型 + クリップボード） */}
+      <div className="px-4 py-3 border-t border-slate-200 bg-slate-50">
         <p className="text-sm font-bold text-slate-700 mb-2">
           通常コピー（そのまま複製）
         </p>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="flex flex-col items-center gap-1">
           <button
-            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={selectedCol >= grid.cols - 1}
-            onClick={() => copyTo("right")}
-            title="右隣へコピー"
-          >
-            → 右
-          </button>
+            className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={!clipboard}
+            onClick={() => pasteFromClipboard()}
+          >↑ 上</button>
+          <div className="flex gap-1">
+            <button
+              className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+              disabled={!clipboard}
+              onClick={() => pasteFromClipboard()}
+            >← 左</button>
+            <button
+              className={`w-20 px-2 py-1.5 text-xs rounded text-white ${clipboard ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-500 hover:bg-orange-600"}`}
+              onClick={() => {
+                if (clipboard) {
+                  pasteFromClipboard();
+                } else {
+                  copyToClipboard();
+                }
+              }}
+            >{clipboard ? "貼付" : "コピー"}</button>
+            <button
+              className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+              disabled={!clipboard}
+              onClick={() => pasteFromClipboard()}
+            >右 →</button>
+          </div>
           <button
-            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={selectedCol <= 0}
-            onClick={() => copyTo("left")}
-            title="左隣へコピー"
-          >
-            ← 左
-          </button>
-          <button
-            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={selectedRow <= 0}
-            onClick={() => copyTo("up")}
-            title="上へコピー"
-          >
-            ↑ 上
-          </button>
-          <button
-            className="px-2 py-2 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={selectedRow >= grid.rows - 1}
-            onClick={() => copyTo("down")}
-            title="下へコピー"
-          >
-            ↓ 下
-          </button>
+            className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
+            disabled={!clipboard}
+            onClick={() => pasteFromClipboard()}
+          >↓ 下</button>
         </div>
+        {clipboard && (
+          <p className="text-xs text-emerald-600 mt-2 text-center">
+            ✓ コピー済み — 全体ビューでセルを選択してから「貼付」ボタンを押してください
+          </p>
+        )}
       </div>
 
       {/* プリセット管理 */}

@@ -1,8 +1,6 @@
 import type { Preset } from "./types";
 
-const DEFAULT_LABEL_SIZE = { widthMm: 38.1, heightMm: 21.2 };
-
-/** 初期同梱プリセット */
+/** 初期同梱レイアウトプリセット（ブロック構成＋接続詞設定） */
 export const DEFAULT_PRESETS: Preset[] = [
   {
     name: "通常7行70面",
@@ -12,7 +10,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 7,
       delimiter: "～",
       delimiterAlign: "center",
-      labelSize: { ...DEFAULT_LABEL_SIZE },
+      labelSize: { widthMm: 38.1, heightMm: 21.2 },
     },
   },
   {
@@ -34,7 +32,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 5,
       delimiter: "～",
       delimiterAlign: "center",
-      labelSize: { ...DEFAULT_LABEL_SIZE },
+      labelSize: { widthMm: 38.1, heightMm: 21.2 },
     },
   },
   {
@@ -45,7 +43,7 @@ export const DEFAULT_PRESETS: Preset[] = [
       itemsPerLabel: 4,
       delimiter: "～",
       delimiterAlign: "center",
-      labelSize: { ...DEFAULT_LABEL_SIZE },
+      labelSize: { widthMm: 38.1, heightMm: 21.2 },
     },
   },
   {
