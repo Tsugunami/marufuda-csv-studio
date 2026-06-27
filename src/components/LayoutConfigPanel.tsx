@@ -3,27 +3,46 @@ import { useStore } from "../lib/store";
 
 export function LayoutConfigPanel() {
     const {
-    layout,
-    setLayout,
-    presets,
-    applyPreset,
-    addPreset,
-    deletePreset,
-    resetPresets,
-    sizePresets,
-    applySizePreset,
-    addSizePreset,
-    deleteSizePreset,
-    resetSizePresets,
-  } = useStore();
+      layout,
+      setLayout,
+      presets,
+      applyPreset,
+      addPreset,
+      deletePreset,
+      resetPresets,
+      sizePresets,
+      applySizePreset,
+      addSizePreset,
+      deleteSizePreset,
+      resetSizePresets,
+      csvFilename,
+      setCsvFilename,
+    } = useStore();
   const [newPresetName, setNewPresetName] = useState("");
   const [newSizePresetName, setNewSizePresetName] = useState("");
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 space-y-4">
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 space-y-4">
       <h2 className="text-sm font-bold text-slate-700 border-b pb-2">
         レイアウト設定
       </h2>
+
+      {/* ファイル名 */}
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">
+          ファイル名（CSV出力時のデフォルト）
+        </label>
+        <div className="flex items-center gap-1">
+          <input
+            type="text"
+            className="flex-1 border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder="ファイル名を入力"
+            value={csvFilename}
+            onChange={(e) => setCsvFilename(e.target.value)}
+          />
+          <span className="text-xs text-slate-500">.csv</span>
+        </div>
+      </div>
 
       {/* レイアウトプリセット */}
       <div>

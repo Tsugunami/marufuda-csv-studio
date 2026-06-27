@@ -5,7 +5,7 @@ import { useStore } from "../lib/store";
 import { buildCsvMatrix } from "../lib/csv-build";
 
 export function ExportBar() {
-  const { grid, exportConfig, layout } = useStore();
+  const { grid, exportConfig, layout, csvFilename } = useStore();
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string>("");
 
@@ -16,10 +16,10 @@ export function ExportBar() {
       const matrix = buildCsvMatrix(grid, exportConfig, layout);
       const rows = matrix.map((cells) => ({ cells }));
 
-      // 保存先を選択
-      const defaultName = `marufuda_${new Date()
-        .toISOString()
-        .slice(0, 10).replace(/-/g, "")}.csv`;
+            // 保存先を選択
+      const defaultName = csvFilename.trim()
+        ? csvFilename.trim().replace(/\.csv$/i, "") + ".csv"
+        : `marufuda_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}.csv`;
       const filePath = await save({
         defaultPath: defaultName,
         filters: [{ name: "CSV", extensions: ["csv"] }],

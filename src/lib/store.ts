@@ -81,8 +81,9 @@ interface AppState {
   sizePresets: SizePreset[];
   clipboard: string[] | null;
   clipboardMode: "copy" | "reverse" | null; // クリップボードの種類
-  history: SheetGrid[]; // undo 用履歴
+    history: SheetGrid[]; // undo 用履歴
   historyIndex: number;
+  csvFilename: string; // 出力CSVファイル名
 
   setLayout: (layout: Partial<LayoutConfig>) => void;
   applyPreset: (index: number) => void;
@@ -105,6 +106,9 @@ interface AppState {
   applySizePreset: (index: number) => void;
   resetPresets: () => void;
   resetSizePresets: () => void;
+  setCsvFilename: (name: string) => void;
+  importCsvData: (rows: string[][], hasHeader: boolean, newLayout?: LayoutConfig) => boolean;
+  hasExistingData: () => boolean;
   getProjectData: () => ProjectData;
   loadProjectData: (data: ProjectData) => void;
 }
@@ -143,8 +147,9 @@ export const useStore = create<AppState>((set, get) => ({
   sizePresets: DEFAULT_SIZE_PRESETS,
   clipboard: null,
   clipboardMode: null,
-  history: [cloneGrid(initialGrid)],
+    history: [cloneGrid(initialGrid)],
   historyIndex: 0,
+  csvFilename: "",
 
   setLayout: (partial) => {
     const newLayout = { ...get().layout, ...partial };
@@ -474,8 +479,72 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presets: [...DEFAULT_PRESETS] });
   },
 
-  resetSizePresets: () => {
+    resetSizePresets: () => {
     set({ sizePresets: [...DEFAULT_SIZE_PRESETS] });
+  },
+
+  setCsvFilename: (name) => {
+    set({ csvFilename: name });
+  },
+
+  hasExistingData: () => {
+    const { grid } = get();
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        const label = grid.labels[r]?.[c];
+        if (!label) continue;
+        if (label.rows.some((row) => row.text.trim() !== "")) return true;
+      }
+    }
+    return false;
+  },
+
+  importCsvData: (rows, hasHeader, newLayout) => {
+    const state = get();
+    // レイアウトが指定されていれば切り替え
+    const layout = newLayout ? { ...newLayout } : { ...state.layout };
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+    const itemsPerLabel = layout.itemsPerLabel;
+    const blockCols = layout.blockCols;
+    const blockRows = layout.blockRows;
+    const totalLabels = blockCols * blockRows;
+
+    if (dataRows.length !== totalLabels) return false;
+
+    // グリッド構築
+    const labels: Label[][] = [];
+    for (let r = 0; r < blockRows; r++) {
+      const row: Label[] = [];
+      for (let c = 0; c < blockCols; c++) {
+        const idx = r * blockCols + c;
+        const csvRow = dataRows[idx] || [];
+        row.push({
+          id: nextId(),
+          rows: Array.from({ length: itemsPerLabel }, (_, i) => ({
+            text: csvRow[i] ?? "",
+          })),
+          useDelimiter: true,
+        });
+      }
+      labels.push(row);
+    }
+    const newGrid: SheetGrid = { cols: blockCols, rows: blockRows, labels };
+
+    const hist = {
+      history: [cloneGrid(newGrid)],
+      historyIndex: 0,
+    };
+    set({
+      ...hist,
+      layout,
+      grid: newGrid,
+      selectedRow: 0,
+      selectedCol: 0,
+      selectedCells: new Set<string>(),
+      clipboard: null,
+      clipboardMode: null,
+    });
+    return true;
   },
 
   getProjectData: () => {
