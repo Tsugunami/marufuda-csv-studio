@@ -11,7 +11,9 @@ export function LabelEditor() {
     selectedCol,
     layout,
     updateLabelRow,
+    toggleLabelDelimiter,
     reverseTo,
+    copyTo,
     setLayout,
     presets,
     applyPreset,
@@ -33,11 +35,12 @@ export function LabelEditor() {
     );
   }
 
-  const delimIdx = layout.delimiter
+  const useDelim = label.useDelimiter ?? true;
+  const hasDelimiter = !!layout.delimiter;
+  const delimIdx = useDelim && hasDelimiter
     ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
     : -1;
   const used = isLabelUsed(label, delimIdx);
-  const hasDelimiter = !!layout.delimiter;
   const isEven = layout.itemsPerLabel % 2 === 0;
 
   return (
@@ -84,6 +87,20 @@ export function LabelEditor() {
             <option value="partner">相手側に寄せる（下）</option>
           </select>
           {!isEven && <p className="text-xs text-slate-400 mt-1">奇数行のため中央固定</p>}
+        </div>
+        {/* ラベルごとの接続詞トグル */}
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-600">このラベルの接続詞</label>
+          <button
+            className={`px-3 py-1 text-xs rounded font-medium ${
+              useDelim
+                ? "bg-emerald-100 text-emerald-700 border border-emerald-300"
+                : "bg-slate-100 text-slate-500 border border-slate-300"
+            }`}
+            onClick={toggleLabelDelimiter}
+          >
+            {useDelim ? "ON" : "OFF"}
+          </button>
         </div>
       </div>
 
@@ -164,14 +181,14 @@ export function LabelEditor() {
         <div className="flex flex-col items-center gap-1">
           <button
             className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={!clipboard}
-            onClick={() => pasteFromClipboard()}
+            disabled={selectedRow <= 0}
+            onClick={() => copyTo("up")}
           >↑ 上</button>
           <div className="flex gap-1">
             <button
               className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-              disabled={!clipboard}
-              onClick={() => pasteFromClipboard()}
+              disabled={selectedCol <= 0}
+              onClick={() => copyTo("left")}
             >← 左</button>
             <button
               className={`w-20 px-2 py-1.5 text-xs rounded text-white ${clipboard ? "bg-emerald-600 hover:bg-emerald-700" : "bg-orange-500 hover:bg-orange-600"}`}
@@ -185,14 +202,14 @@ export function LabelEditor() {
             >{clipboard ? "貼付" : "コピー"}</button>
             <button
               className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-              disabled={!clipboard}
-              onClick={() => pasteFromClipboard()}
+              disabled={selectedCol >= grid.cols - 1}
+              onClick={() => copyTo("right")}
             >右 →</button>
           </div>
           <button
             className="w-20 px-2 py-1.5 text-xs rounded bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-40"
-            disabled={!clipboard}
-            onClick={() => pasteFromClipboard()}
+            disabled={selectedRow >= grid.rows - 1}
+            onClick={() => copyTo("down")}
           >↓ 下</button>
         </div>
         {clipboard && (

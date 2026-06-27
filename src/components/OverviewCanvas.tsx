@@ -40,10 +40,6 @@ export function OverviewCanvas() {
     ctx.scale(zoom, zoom);
     ctx.translate(padding + sizeMargin, padding + sizeMargin);
 
-    const delimIdx = layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
-      : -1;
-
     // 左上ブロックのサイズ表示（幅: 上、高さ: 左）
     ctx.fillStyle = "#64748b";
     ctx.font = "10px sans-serif";
@@ -71,7 +67,12 @@ export function OverviewCanvas() {
         const y = r * cellH;
         const label = grid.labels[r]?.[c];
         const isSelected = r === selectedRow && c === selectedCol;
-        const hasData = label ? isLabelUsed(label, delimIdx) : false;
+        // ラベルごとの delimIdx を計算
+        const labelUseDelim = label ? (label.useDelimiter ?? true) : true;
+        const labelDelimIdx = labelUseDelim && layout.delimiter
+          ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+          : -1;
+        const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
 
         // 背景
         if (isSelected) ctx.fillStyle = "#dbeafe";
@@ -94,7 +95,7 @@ export function OverviewCanvas() {
           for (let i = 0; i < displayTexts.length; i++) {
             const text = displayTexts[i];
             if (text.trim() === "") continue;
-            const isDelim = i === delimIdx;
+            const isDelim = i === labelDelimIdx;
             ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
             const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
             const lineY = y + cellHeaderH + rowLineH / 2 + i * rowLineH;

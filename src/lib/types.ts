@@ -9,6 +9,7 @@ export interface LabelRow {
 export interface Label {
   id: string;
   rows: LabelRow[];
+  useDelimiter?: boolean; // ラベルごとの接続詞使用フラグ（未設定時はtrue扱い）
 }
 
 /** シート全体 = ブロック格子 */

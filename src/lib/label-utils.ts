@@ -13,6 +13,8 @@ export function isLabelUsed(label: Label, delimIdx: number): boolean {
 
 /**
  * ラベルの表示用テキストを行配列で取得する。
+ * ラベルごとの useDelimiter フラグを考慮し、
+ * OFF の場合は接続詞を挿入しない。
  * デリミタ行は「ラベルが使用中の場合のみ」layout.delimiter で補完し、
  * 未使用ラベル（1文字も入力がない）のデリミタ行は空文字にする。
  */
@@ -20,7 +22,8 @@ export function getLabelDisplayTexts(
   label: Label,
   layout: LayoutConfig
 ): string[] {
-  const delimIdx = layout.delimiter
+  const useDelim = label.useDelimiter ?? true;
+  const delimIdx = useDelim && layout.delimiter
     ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
     : -1;
   const used = isLabelUsed(label, delimIdx);

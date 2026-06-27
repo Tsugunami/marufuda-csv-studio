@@ -23,6 +23,7 @@ function createEmptyLabel(itemsPerLabel: number): Label {
   return {
     id: nextId(),
     rows: Array.from({ length: itemsPerLabel }, () => ({ text: "" })),
+    useDelimiter: true,
   };
 }
 
@@ -56,7 +57,9 @@ interface AppState {
   applyPreset: (index: number) => void;
   selectLabel: (row: number, col: number) => void;
   updateLabelRow: (labelRow: number, text: string) => void;
+  toggleLabelDelimiter: () => void;
   reverseTo: (direction: ReverseDirection) => void;
+  copyTo: (direction: ReverseDirection) => void;
   copyToClipboard: () => void;
   pasteFromClipboard: () => void;
   setExportConfig: (config: Partial<ExportConfig>) => void;
@@ -139,12 +142,25 @@ export const useStore = create<AppState>((set, get) => ({
     set({ grid: { ...grid, labels: newLabels } });
   },
 
+  toggleLabelDelimiter: () => {
+    const { grid, selectedRow, selectedCol } = get();
+    const newLabels = grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({ ...l }))
+    );
+    const label = newLabels[selectedRow]?.[selectedCol];
+    if (label) {
+      label.useDelimiter = !(label.useDelimiter ?? true);
+    }
+    set({ grid: { ...grid, labels: newLabels } });
+  },
+
   reverseTo: (direction) => {
     const { grid, selectedRow, selectedCol, layout } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
-    const delimIdx = layout.delimiter
+    const useDelim = sourceLabel.useDelimiter ?? true;
+    const delimIdx = useDelim && layout.delimiter
       ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
       : -1;
     const used = sourceLabel.rows.some(
@@ -197,12 +213,71 @@ export const useStore = create<AppState>((set, get) => ({
     set({ grid: { ...grid, labels: newLabels } });
   },
 
+  copyTo: (direction) => {
+    const { grid, selectedRow, selectedCol, layout } = get();
+    const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
+    if (!sourceLabel) return;
+
+    let targetRow = selectedRow;
+    let targetCol = selectedCol;
+    switch (direction) {
+      case "right":
+        targetCol = selectedCol + 1;
+        break;
+      case "left":
+        targetCol = selectedCol - 1;
+        break;
+      case "down":
+        targetRow = selectedRow + 1;
+        break;
+      case "up":
+        targetRow = selectedRow - 1;
+        break;
+    }
+
+    if (
+      targetRow < 0 ||
+      targetRow >= grid.rows ||
+      targetCol < 0 ||
+      targetCol >= grid.cols
+    ) {
+      return;
+    }
+
+    const newLabels = grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
+    );
+
+    const targetLabel = newLabels[targetRow][targetCol];
+    const useDelim = sourceLabel.useDelimiter ?? true;
+    const delimIdx = useDelim && layout.delimiter
+      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      : -1;
+    const used = sourceLabel.rows.some(
+      (row, i) => i !== delimIdx && row.text.trim() !== ""
+    );
+    for (let i = 0; i < targetLabel.rows.length; i++) {
+      if (i === delimIdx && used) {
+        targetLabel.rows[i].text = layout.delimiter;
+      } else {
+        targetLabel.rows[i].text = sourceLabel.rows[i]?.text ?? "";
+      }
+    }
+    targetLabel.useDelimiter = sourceLabel.useDelimiter;
+
+    set({ grid: { ...grid, labels: newLabels } });
+  },
+
   copyToClipboard: () => {
     const { grid, selectedRow, selectedCol, layout } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
-    const delimIdx = layout.delimiter
+    const useDelim = sourceLabel.useDelimiter ?? true;
+    const delimIdx = useDelim && layout.delimiter
       ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
       : -1;
     const used = sourceLabel.rows.some(
