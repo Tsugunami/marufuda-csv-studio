@@ -21,6 +21,7 @@ export function OverviewCanvas() {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const selectionRef = useRef<{ start: number; end: number; row: number }>({ start: 0, end: 0, row: -1 });
   const {
     grid, selectedRow, selectedCol, selectedCells, selectLabel, selectAll, layout,
     clearSelected, undo, clipboard, clipboardMode,
@@ -180,6 +181,45 @@ export function OverviewCanvas() {
 
         if (editingCell && !isEditing) {
           // 編集モード中は他セルを半透明オーバーレイでグレーアウト（元の表示が透けて見える）
+          // まず通常描画
+          if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
+          else if (isSelected) ctx.fillStyle = "#dbeafe";
+          else if (hasData) ctx.fillStyle = "#f0fdf4";
+          else ctx.fillStyle = "#ffffff";
+          ctx.fillRect(x, y, cellW - 2, cellH - 2);
+          if (isSelected) {
+            ctx.strokeStyle = "#2563eb";
+            ctx.lineWidth = 2;
+          } else if (isMultiSelected) {
+            ctx.strokeStyle = "#f59e0b";
+            ctx.lineWidth = 2;
+          } else {
+            ctx.strokeStyle = "#cbd5e1";
+            ctx.lineWidth = 1;
+          }
+          ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+          // テキストも通常描画
+          if (label) {
+            const displayTexts = getLabelDisplayTexts(label, layout);
+            ctx.font = "9px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const centerX = x + (cellW - 2) / 2;
+            const totalH = displayTexts.length * rowLineH;
+            const startY = y + (cellH - totalH) / 2 + rowLineH / 2;
+            for (let i = 0; i < displayTexts.length; i++) {
+              const text = displayTexts[i];
+              if (text.trim() === "") continue;
+              const isDelim = i === labelDelimIdx;
+              ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
+              const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
+              const lineY = startY + i * rowLineH;
+              ctx.fillText(displayText, centerX, lineY);
+            }
+            ctx.textAlign = "start";
+            ctx.textBaseline = "alphabetic";
+          }
+          // 上から半透明レイヤーを重ねる
           ctx.fillStyle = "rgba(226,232,240,0.75)";
           ctx.fillRect(x, y, cellW - 2, cellH - 2);
           ctx.strokeStyle = "#cbd5e1";
@@ -473,12 +513,27 @@ export function OverviewCanvas() {
           {presetTexts.map((p) => (
             <button
               key={p.id}
-              className="shrink-0 text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-slate-50 hover:bg-brand-50 hover:border-brand-300 text-slate-700 leading-tight"
+              className={`shrink-0 text-xs px-2 py-0.5 rounded-full border leading-tight ${
+                editingCell
+                  ? "border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100"
+                  : "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+              }`}
               onClick={() => {
-                const rowIdx = editingLine >= 0 && editingCell ? editingLine : undefined;
-                applyPresetTextToSelected(p.text, rowIdx);
+                if (!editingCell) return;
+                const rowIdx = selectionRef.current.row >= 0 ? selectionRef.current.row : (editingLine >= 0 ? editingLine : 0);
+                const start = selectionRef.current.row === rowIdx ? selectionRef.current.start : undefined;
+                const end = selectionRef.current.row === rowIdx ? selectionRef.current.end : undefined;
+                applyPresetTextToSelected(p.text, rowIdx, start, end);
+                // フォーカスを維持（input にフォーカスを戻す）
+                const inp = inputRefs.current[rowIdx];
+                if (inp) {
+                  inp.focus();
+                  const insertLen = (p.text[0] ?? "").length;
+                  const pos = (start ?? 0) + insertLen;
+                  inp.setSelectionRange(pos, pos);
+                }
               }}
-              title="クリックで選択セルに貼付"
+              title={editingCell ? "クリックでカーソル位置に貼付" : "編集モードでのみ使用可能"}
             >{p.text.filter(t => t.trim()).join("／") || "(空)"}</button>
           ))}
         </div>
@@ -592,8 +647,26 @@ export function OverviewCanvas() {
                       onChange={(e) => updateLabelRow(i, e.target.value)}
                       onFocus={() => {
                         setEditingLine(i);
+                        selectionRef.current.row = i;
+                        const inp = inputRefs.current[i];
+                        if (inp) {
+                          selectionRef.current.start = inp.selectionStart ?? 0;
+                          selectionRef.current.end = inp.selectionEnd ?? 0;
+                        }
                         if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
                           selectLabel(editingCell.row, editingCell.col);
+                        }
+                      }}
+                      onSelect={() => {
+                        const inp = inputRefs.current[i];
+                        if (inp) {
+                          selectionRef.current = { start: inp.selectionStart ?? 0, end: inp.selectionEnd ?? 0, row: i };
+                        }
+                      }}
+                      onMouseUp={() => {
+                        const inp = inputRefs.current[i];
+                        if (inp) {
+                          selectionRef.current = { start: inp.selectionStart ?? 0, end: inp.selectionEnd ?? 0, row: i };
                         }
                       }}
                       onKeyDown={(e) => {

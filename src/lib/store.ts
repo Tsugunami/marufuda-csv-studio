@@ -109,7 +109,7 @@ interface AppState {
   deletePresetText: (id: string) => void;
   reorderPresetTexts: (from: number, to: number) => void;
   resetPresetTexts: () => void;
-  applyPresetTextToSelected: (texts: string[], rowIndex?: number) => void;
+  applyPresetTextToSelected: (texts: string[], rowIndex?: number, cursorStart?: number, cursorEnd?: number) => void;
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
   applySizePreset: (index: number) => void;
@@ -511,7 +511,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presetTexts: [] });
   },
 
-  applyPresetTextToSelected: (texts, rowIndex) => {
+  applyPresetTextToSelected: (texts, rowIndex, cursorStart, cursorEnd) => {
     const { grid, selectedRow, selectedCol } = get();
     const newLabels = grid.labels.map((rowArr) =>
       rowArr.map((l) => ({
@@ -521,15 +521,13 @@ export const useStore = create<AppState>((set, get) => ({
     );
     const label = newLabels[selectedRow]?.[selectedCol];
     if (!label) return;
-    if (rowIndex !== undefined && rowIndex >= 0 && rowIndex < label.rows.length) {
-      // カーソル行に挿入（既存テキストの先頭に追加 = 入力補助）
-      label.rows[rowIndex].text = (texts[0] ?? texts[rowIndex] ?? "") + label.rows[rowIndex].text;
-    } else {
-      // 全行更新
-      for (let i = 0; i < label.rows.length; i++) {
-        label.rows[i].text = (texts[i] ?? "") + label.rows[i].text;
-      }
-    }
+    const targetRow = rowIndex !== undefined && rowIndex >= 0 && rowIndex < label.rows.length
+      ? rowIndex : 0;
+    const current = label.rows[targetRow].text;
+    const start = cursorStart ?? current.length;
+    const end = cursorEnd ?? start;
+    // カーソル位置に挿入（選択範囲があれば置換）
+    label.rows[targetRow].text = current.slice(0, start) + (texts[0] ?? "") + current.slice(end);
     const hist = pushHistory(get());
     set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
