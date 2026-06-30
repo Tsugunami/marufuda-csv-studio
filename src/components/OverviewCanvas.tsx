@@ -93,8 +93,9 @@ export function OverviewCanvas() {
   const getOverlayStyle = (): React.CSSProperties => {
     if (!editingCell || !containerRef.current) return { display: 'none' };
     const container = containerRef.current;
-    const left = (padding + sizeMargin + labelMargin + editingCell.col * cellW) * zoom - container.scrollLeft;
-    const top = (padding + sizeMargin + labelMargin + editingCell.row * cellH) * zoom - container.scrollTop;
+    const containerPad = 8; // p-2
+    const left = containerPad + (padding + sizeMargin + labelMargin + editingCell.col * cellW) * zoom - container.scrollLeft;
+    const top = containerPad + (padding + sizeMargin + labelMargin + editingCell.row * cellH) * zoom - container.scrollTop;
     return {
       position: 'absolute' as const,
       left: `${left}px`,
@@ -430,17 +431,9 @@ export function OverviewCanvas() {
 
   const ctxMenuDivider = () => <div className="border-t border-slate-100 my-1" />;
 
-  // デリミタ状態配列（サイクル順）
-  const delimStates: ('center' | 'self' | 'partner' | 'none')[] = ['center', 'self', 'partner', 'none'];
   const currentDelimState = getDelimiterState();
 
   const overlayStyle = getOverlayStyle();
-
-  // オーバーレイ内のinput行高さ
-  const overlayDelimBarH = 20;
-  const overlayInputAreaH = (ovStyle: React.CSSProperties) =>
-    ovStyle.height ? parseFloat(String(ovStyle.height)) - overlayDelimBarH * zoom : 0;
-  const overlayRowH = overlayInputAreaH(overlayStyle) / layout.itemsPerLabel / zoom;
 
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
@@ -482,76 +475,74 @@ export function OverviewCanvas() {
 
         {/* 編集モード オーバーレイ */}
         {editingCell && editingLabel && (
-          <div
-            ref={overlayRef}
-            className="z-40 bg-white/95 border-2 border-brand-600 rounded shadow-lg overflow-hidden"
-            style={overlayStyle}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* デリミタトグルバー */}
-            <div className="flex items-center gap-0.5 bg-brand-600 justify-center"
-              style={{ height: `${overlayDelimBarH * zoom}px` }}>
-              {delimStates.map((state) => {
-                const active = state === currentDelimState;
+          <>
+            {/* デリミタ切替ボタン（枠外上部、単一バッジ） */}
+            <div
+              className="absolute z-50"
+              style={{
+                left: `calc(${overlayStyle.left} + ${overlayStyle.width} / 2 - 28px)`,
+                top: `calc(${overlayStyle.top} - 18px)`,
+              }}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                className="text-[10px] font-bold rounded-full border border-brand-600 bg-white text-brand-700 shadow-md hover:bg-brand-50 leading-none"
+                style={{ padding: '2px 8px', whiteSpace: 'nowrap' }}
+                onClick={delimiterCycle}
+              >
+                {getDelimiterDisplay(currentDelimState)}
+              </button>
+            </div>
+            {/* セル編集オーバーレイ */}
+            <div
+              ref={overlayRef}
+              className="z-40 bg-white border-2 border-brand-600 rounded shadow-lg overflow-hidden"
+              style={overlayStyle}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {editingLabel.rows.map((row, i) => {
+                const isDelim = i === editingDelimIdx;
+                const readOnly = isDelim && editingUseDelim && !!layout.delimiter;
+                const displayValue = isDelim && editingUseDelim && !!layout.delimiter
+                  ? layout.delimiter
+                  : row.text;
                 return (
-                  <button
-                    key={state}
-                    className={`px-1 text-[10px] font-bold rounded-sm leading-none ${
-                      active
-                        ? "bg-white text-brand-700"
-                        : "bg-brand-500 text-white/80 hover:bg-brand-400"
-                    }`}
-                    style={{ fontSize: `${Math.max(7, 10 * zoom)}px` }}
-                    onClick={delimiterCycle}
-                  >
-                    {getDelimiterDisplay(state)}
-                  </button>
+                  <div key={i} className="flex items-center"
+                    style={{ height: `${(100 / layout.itemsPerLabel).toFixed(2)}%` }}>
+                    <span className="text-[8px] text-slate-400 text-right px-0.5 shrink-0"
+                      style={{ width: `${12 * zoom}px`, fontSize: `${Math.max(6, 10 * zoom)}px` }}>
+                      {i + 1}
+                    </span>
+                    <input
+                      ref={(el) => { inputRefs.current[i] = el; }}
+                      type="text"
+                      readOnly={readOnly}
+                      className={`flex-1 border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 min-w-0 ${
+                        readOnly
+                          ? "bg-red-50 text-red-600 font-bold text-center"
+                          : "bg-transparent"
+                      }`}
+                      style={{ fontSize: `${Math.max(7, 10 * zoom)}px`, height: '100%' }}
+                      value={displayValue}
+                      onChange={(e) => updateLabelRow(i, e.target.value)}
+                      onFocus={() => {
+                        if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
+                          selectLabel(editingCell.row, editingCell.col);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setEditingCell(null);
+                        }
+                      }}
+                    />
+                  </div>
                 );
               })}
             </div>
-            {/* 行インプット */}
-            {editingLabel.rows.map((row, i) => {
-              const isDelim = i === editingDelimIdx;
-              const readOnly = isDelim && editingUseDelim && !!layout.delimiter;
-              const displayValue = isDelim && editingUseDelim && !!layout.delimiter
-                ? layout.delimiter
-                : row.text;
-              return (
-                <div key={i} className="flex items-center"
-                  style={{ height: `${overlayRowH * zoom}px` }}>
-                  <span className="text-[8px] text-slate-400 text-right px-0.5"
-                    style={{ width: `${12 * zoom}px`, fontSize: `${Math.max(6, 8 * zoom)}px` }}>
-                    {i + 1}
-                  </span>
-                  <input
-                    ref={(el) => { inputRefs.current[i] = el; }}
-                    type="text"
-                    readOnly={readOnly}
-                    className={`flex-1 border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 ${
-                      readOnly
-                        ? "bg-red-50 text-red-600 font-bold text-center"
-                        : "bg-transparent"
-                    }`}
-                    style={{ fontSize: `${Math.max(7, 10 * zoom)}px` }}
-                    value={displayValue}
-                    onChange={(e) => updateLabelRow(i, e.target.value)}
-                    onFocus={() => {
-                      // 編集中セルを store の選択と一致させる
-                      if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
-                        selectLabel(editingCell.row, editingCell.col);
-                      }
-                    }}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setEditingCell(null);
-                      }
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
+          </>
         )}
       </div>
 
