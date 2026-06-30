@@ -1,0 +1,44 @@
+{
+  "version": 2,
+  "grid": {
+    "cols": 5,
+    "rows": 8,
+    "labels": []
+  },
+  "layout": {
+    "blockCols": 5,
+    "blockRows": 8,
+    "itemsPerLabel": 7,
+    "delimiter": "～",
+    "delimiterAlign": "center",
+    "labelSize": {
+      "widthMm": 38.1,
+      "heightMm": 21.2
+    }
+  },
+  "presets": [
+    { "name": "通常7行70面", "layout": { "blockCols": 7, "blockRows": 10, "itemsPerLabel": 7, "delimiter": "～", "delimiterAlign": "center", "labelSize": { "widthMm": 38.1, "heightMm": 21.2 } } },
+    { "name": "KDDI 8行40面", "layout": { "blockCols": 5, "blockRows": 8, "itemsPerLabel": 8, "delimiter": "～", "delimiterAlign": "center", "labelSize": { "widthMm": 48, "heightMm": 25 } } },
+    { "name": "95面5行", "layout": { "blockCols": 5, "blockRows": 19, "itemsPerLabel": 5, "delimiter": "～", "delimiterAlign": "center", "labelSize": { "widthMm": 38.1, "heightMm": 21.2 } } },
+    { "name": "95面4行", "layout": { "blockCols": 5, "blockRows": 19, "itemsPerLabel": 4, "delimiter": "～", "delimiterAlign": "center", "labelSize": { "widthMm": 38.1, "heightMm": 21.2 } } },
+    { "name": "横長4行", "layout": { "blockCols": 5, "blockRows": 8, "itemsPerLabel": 4, "delimiter": "～", "delimiterAlign": "center", "labelSize": { "widthMm": 63.5, "heightMm": 17 } } },
+    { "name": "6行(自分寄せ)", "layout": { "blockCols": 5, "blockRows": 8, "itemsPerLabel": 6, "delimiter": "～", "delimiterAlign": "self", "labelSize": { "widthMm": 48, "heightMm": 25 } } },
+    { "name": "6行(相手寄せ)", "layout": { "blockCols": 5, "blockRows": 8, "itemsPerLabel": 6, "delimiter": "～", "delimiterAlign": "partner", "labelSize": { "widthMm": 48, "heightMm": 25 } } }
+  ],
+  "sizePresets": [
+    { "name": "標準 (38.1×21.2)", "labelSize": { "widthMm": 38.1, "heightMm": 21.2 } },
+    { "name": "KDDI (48×25)", "labelSize": { "widthMm": 48, "heightMm": 25 } },
+    { "name": "横長 (63.5×17)", "labelSize": { "widthMm": 63.5, "heightMm": 17 } }
+  ],
+  "presetTexts": [
+    { "id": "pt-default-1", "text": ["自", "光", "1G-1"] },
+    { "id": "pt-default-2", "text": ["相", "光", "1G-2"] },
+    { "id": "pt-default-3", "text": ["自", "V", "1G-1"] },
+    { "id": "pt-default-4", "text": ["相", "V", "1G-2"] }
+  ],
+  "exportConfig": {
+    "encoding": "shift_jis",
+    "withHeader": true,
+    "headerNames": []
+  }
+}
