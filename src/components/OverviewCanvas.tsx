@@ -26,6 +26,7 @@ export function OverviewCanvas() {
     clearSelected, undo, clipboard, clipboardMode,
     copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
     copyTo, reverseTo, setLayout, updateLabelRow, toggleLabelDelimiter,
+    presetTexts, applyPresetTextToSelected,
   } = useStore();
   const [zoom, setZoom] = useState(1);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
@@ -176,8 +177,8 @@ export function OverviewCanvas() {
         const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
 
         if (editingCell && !isEditing) {
-          // 編集モード中は他セルをグレーアウト
-          ctx.fillStyle = "#e2e8f0";
+          // 編集モード中は他セルを半透明オーバーレイでグレーアウト（元の表示が透けて見える）
+          ctx.fillStyle = "rgba(226,232,240,0.75)";
           ctx.fillRect(x, y, cellW - 2, cellH - 2);
           ctx.strokeStyle = "#cbd5e1";
           ctx.lineWidth = 1;
@@ -458,6 +459,21 @@ export function OverviewCanvas() {
         </div>
       </div>
 
+      {/* 定型文プリセットバー */}
+      {presetTexts.length > 0 && (
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-200 bg-white overflow-x-auto">
+          <span className="text-[10px] text-slate-400 shrink-0 mr-1">📋</span>
+          {presetTexts.map((p) => (
+            <button
+              key={p.id}
+              className="shrink-0 text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-slate-50 hover:bg-brand-50 hover:border-brand-300 text-slate-700 leading-tight"
+              onClick={() => applyPresetTextToSelected(p.text)}
+              title="クリックで選択セルに貼付"
+            >{p.text.join("／")}</button>
+          ))}
+        </div>
+      )}
+
       <div ref={containerRef} className="flex-1 overflow-auto p-2 cursor-grab active:cursor-grabbing select-none"
         style={{ position: "relative" }}
         onMouseDown={handleMouseDown}
@@ -481,14 +497,14 @@ export function OverviewCanvas() {
               className="absolute z-50"
               style={{
                 left: `calc(${overlayStyle.left} + ${overlayStyle.width} / 2 - 28px)`,
-                top: `calc(${overlayStyle.top} - 18px)`,
+                top: `calc(${overlayStyle.top} - 26px)`,
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
             >
               <button
-                className="text-[10px] font-bold rounded-full border border-brand-600 bg-white text-brand-700 shadow-md hover:bg-brand-50 leading-none"
-                style={{ padding: '2px 8px', whiteSpace: 'nowrap' }}
+                className="font-bold rounded-full border-2 border-brand-600 bg-white text-brand-700 shadow-md hover:bg-brand-50 leading-none"
+                style={{ padding: '4px 12px', fontSize: '25px', whiteSpace: 'nowrap' }}
                 onClick={delimiterCycle}
               >
                 {getDelimiterDisplay(currentDelimState)}

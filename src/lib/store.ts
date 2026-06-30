@@ -7,6 +7,7 @@ import type {
   ReverseDirection,
   Preset,
   SizePreset,
+  PresetTextItem,
   DelimiterAlign,
 } from "./types";
 import { getDelimiterRowIndex, isDelimiterText } from "./delimiter";
@@ -80,6 +81,7 @@ interface AppState {
   exportConfig: ExportConfig;
   presets: typeof DEFAULT_PRESETS;
   sizePresets: SizePreset[];
+  presetTexts: PresetTextItem[];
   clipboard: string[] | null;
   clipboardMode: "copy" | "reverse" | null; // クリップボードの種類
     history: SheetGrid[]; // undo 用履歴
@@ -103,6 +105,11 @@ interface AppState {
   addPreset: (name: string) => void;
   deletePreset: (index: number) => void;
   overwritePreset: (index: number) => void;
+  addPresetText: (texts: string[]) => void;
+  deletePresetText: (id: string) => void;
+  reorderPresetTexts: (from: number, to: number) => void;
+  resetPresetTexts: () => void;
+  applyPresetTextToSelected: (texts: string[]) => void;
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
   applySizePreset: (index: number) => void;
@@ -147,6 +154,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   presets: DEFAULT_PRESETS,
   sizePresets: DEFAULT_SIZE_PRESETS,
+  presetTexts: [],
   clipboard: null,
   clipboardMode: null,
     history: [cloneGrid(initialGrid)],
@@ -474,6 +482,50 @@ export const useStore = create<AppState>((set, get) => ({
     const updated = [...presets];
     updated[index] = { ...preset, layout: { ...layout } };
     set({ presets: updated });
+  },
+
+  addPresetText: (texts) => {
+    const { presetTexts, layout } = get();
+    const padded = Array.from({ length: layout.itemsPerLabel }, (_, i) => texts[i] ?? "");
+    const item: PresetTextItem = {
+      id: `pt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      text: padded,
+    };
+    set({ presetTexts: [...presetTexts, item] });
+  },
+
+  deletePresetText: (id) => {
+    const { presetTexts } = get();
+    set({ presetTexts: presetTexts.filter((p) => p.id !== id) });
+  },
+
+  reorderPresetTexts: (from, to) => {
+    const { presetTexts } = get();
+    const updated = [...presetTexts];
+    const [moved] = updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    set({ presetTexts: updated });
+  },
+
+  resetPresetTexts: () => {
+    set({ presetTexts: [] });
+  },
+
+  applyPresetTextToSelected: (texts) => {
+    const { grid, selectedRow, selectedCol } = get();
+    const newLabels = grid.labels.map((rowArr) =>
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
+    );
+    const label = newLabels[selectedRow]?.[selectedCol];
+    if (!label) return;
+    for (let i = 0; i < label.rows.length; i++) {
+      label.rows[i].text = texts[i] ?? "";
+    }
+    const hist = pushHistory(get());
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
   addSizePreset: (name) => {

@@ -59,3 +59,9 @@ export interface SizePreset {
   name: string;
   labelSize: LabelSize;
 }
+
+/** 定型文プリセット（1ラベル分の行テキスト配列） */
+export interface PresetTextItem {
+  id: string;
+  text: string[];
+}
