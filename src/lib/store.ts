@@ -109,7 +109,7 @@ interface AppState {
   deletePresetText: (id: string) => void;
   reorderPresetTexts: (from: number, to: number) => void;
   resetPresetTexts: () => void;
-  applyPresetTextToSelected: (texts: string[]) => void;
+  applyPresetTextToSelected: (texts: string[], rowIndex?: number) => void;
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
   applySizePreset: (index: number) => void;
@@ -511,7 +511,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presetTexts: [] });
   },
 
-  applyPresetTextToSelected: (texts) => {
+  applyPresetTextToSelected: (texts, rowIndex) => {
     const { grid, selectedRow, selectedCol } = get();
     const newLabels = grid.labels.map((rowArr) =>
       rowArr.map((l) => ({
@@ -521,8 +521,14 @@ export const useStore = create<AppState>((set, get) => ({
     );
     const label = newLabels[selectedRow]?.[selectedCol];
     if (!label) return;
-    for (let i = 0; i < label.rows.length; i++) {
-      label.rows[i].text = texts[i] ?? "";
+    if (rowIndex !== undefined && rowIndex >= 0 && rowIndex < label.rows.length) {
+      // 指定行だけ更新
+      label.rows[rowIndex].text = texts[0] ?? texts[rowIndex] ?? "";
+    } else {
+      // 全行更新
+      for (let i = 0; i < label.rows.length; i++) {
+        label.rows[i].text = texts[i] ?? "";
+      }
     }
     const hist = pushHistory(get());
     set({ ...hist, grid: { ...grid, labels: newLabels } });

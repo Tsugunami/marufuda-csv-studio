@@ -26,11 +26,13 @@ export function OverviewCanvas() {
     clearSelected, undo, clipboard, clipboardMode,
     copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
     copyTo, reverseTo, setLayout, updateLabelRow, toggleLabelDelimiter,
-    presetTexts, applyPresetTextToSelected,
+    presetTexts, applyPresetTextToSelected, reorderPresetTexts,
   } = useStore();
   const [zoom, setZoom] = useState(1);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
+  const [editingLine, setEditingLine] = useState<number>(-1);
+  const [reorderMode, setReorderMode] = useState(false);
 
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
@@ -460,17 +462,78 @@ export function OverviewCanvas() {
       </div>
 
       {/* 定型文プリセットバー */}
-      {presetTexts.length > 0 && (
+      {!reorderMode && presetTexts.length > 0 && (
         <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-200 bg-white overflow-x-auto">
           <span className="text-[10px] text-slate-400 shrink-0 mr-1">📋</span>
+          <button
+            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-100"
+            onClick={() => setReorderMode(true)}
+            title="並び替え"
+          >⇅</button>
           {presetTexts.map((p) => (
             <button
               key={p.id}
               className="shrink-0 text-xs px-2 py-0.5 rounded-full border border-slate-300 bg-slate-50 hover:bg-brand-50 hover:border-brand-300 text-slate-700 leading-tight"
-              onClick={() => applyPresetTextToSelected(p.text)}
+              onClick={() => {
+                const rowIdx = editingLine >= 0 && editingCell ? editingLine : undefined;
+                applyPresetTextToSelected(p.text, rowIdx);
+              }}
               title="クリックで選択セルに貼付"
-            >{p.text.join("／")}</button>
+            >{p.text.filter(t => t.trim()).join("／") || "(空)"}</button>
           ))}
+        </div>
+      )}
+
+      {/* 並び替えモード */}
+      {reorderMode && (
+        <div className="px-3 py-2 border-b border-slate-200 bg-amber-50">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold text-amber-800">並び替え（ドラッグで順序変更）</span>
+            <div className="flex gap-1">
+              <button
+                className="px-2 py-0.5 text-xs rounded bg-green-600 text-white hover:bg-green-700"
+                onClick={() => setReorderMode(false)}
+              >保存</button>
+              <button
+                className="px-2 py-0.5 text-xs rounded bg-slate-300 text-slate-700 hover:bg-slate-400"
+                onClick={() => setReorderMode(false)}
+              >キャンセル</button>
+            </div>
+          </div>
+          <div className="space-y-1">
+            {presetTexts.map((p, i) => (
+              <div
+                key={p.id}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-white border border-slate-200 cursor-grab active:cursor-grabbing"
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/plain", String(i));
+                  (e.currentTarget as HTMLElement).style.opacity = "0.4";
+                }}
+                onDragEnd={(e) => {
+                  (e.currentTarget as HTMLElement).style.opacity = "1";
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.add("ring-2", "ring-amber-400");
+                }}
+                onDragLeave={(e) => {
+                  e.currentTarget.classList.remove("ring-2", "ring-amber-400");
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.remove("ring-2", "ring-amber-400");
+                  const from = Number(e.dataTransfer.getData("text/plain"));
+                  if (from !== i) {
+                    reorderPresetTexts(from, i);
+                  }
+                }}
+              >
+                <span className="text-slate-400 mr-1">☰</span>
+                <span className="flex-1 truncate text-slate-600">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -544,6 +607,7 @@ export function OverviewCanvas() {
                       value={displayValue}
                       onChange={(e) => updateLabelRow(i, e.target.value)}
                       onFocus={() => {
+                        setEditingLine(i);
                         if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
                           selectLabel(editingCell.row, editingCell.col);
                         }

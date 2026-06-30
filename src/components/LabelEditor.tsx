@@ -179,7 +179,7 @@ export function LabelEditor() {
           <div className="space-y-1 max-h-28 overflow-auto">
             {presetTexts.map((p) => (
               <div key={p.id} className="flex items-center gap-1 text-xs px-1 py-0.5 rounded hover:bg-slate-100">
-                <span className="flex-1 truncate text-slate-600">{p.text.join(" ／ ")}</span>
+                <span className="flex-1 truncate text-slate-600">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
                 <button
                   className="text-blue-500 hover:text-blue-700 shrink-0"
                   onClick={() => applyPresetTextToSelected(p.text)}
