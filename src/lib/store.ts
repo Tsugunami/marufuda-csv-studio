@@ -522,12 +522,12 @@ export const useStore = create<AppState>((set, get) => ({
     const label = newLabels[selectedRow]?.[selectedCol];
     if (!label) return;
     if (rowIndex !== undefined && rowIndex >= 0 && rowIndex < label.rows.length) {
-      // 指定行だけ更新
-      label.rows[rowIndex].text = texts[0] ?? texts[rowIndex] ?? "";
+      // カーソル行に挿入（既存テキストの先頭に追加 = 入力補助）
+      label.rows[rowIndex].text = (texts[0] ?? texts[rowIndex] ?? "") + label.rows[rowIndex].text;
     } else {
       // 全行更新
       for (let i = 0; i < label.rows.length; i++) {
-        label.rows[i].text = texts[i] ?? "";
+        label.rows[i].text = (texts[i] ?? "") + label.rows[i].text;
       }
     }
     const hist = pushHistory(get());

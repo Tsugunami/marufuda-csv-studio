@@ -488,7 +488,7 @@ export function OverviewCanvas() {
       {reorderMode && (
         <div className="px-3 py-2 border-b border-slate-200 bg-amber-50">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-amber-800">並び替え（ドラッグで順序変更）</span>
+            <span className="text-xs font-bold text-amber-800">並び替え</span>
             <div className="flex gap-1">
               <button
                 className="px-2 py-0.5 text-xs rounded bg-green-600 text-white hover:bg-green-700"
@@ -500,37 +500,21 @@ export function OverviewCanvas() {
               >キャンセル</button>
             </div>
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-wrap gap-1 items-center">
             {presetTexts.map((p, i) => (
-              <div
-                key={p.id}
-                className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-white border border-slate-200 cursor-grab active:cursor-grabbing"
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("text/plain", String(i));
-                  (e.currentTarget as HTMLElement).style.opacity = "0.4";
-                }}
-                onDragEnd={(e) => {
-                  (e.currentTarget as HTMLElement).style.opacity = "1";
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.classList.add("ring-2", "ring-amber-400");
-                }}
-                onDragLeave={(e) => {
-                  e.currentTarget.classList.remove("ring-2", "ring-amber-400");
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  e.currentTarget.classList.remove("ring-2", "ring-amber-400");
-                  const from = Number(e.dataTransfer.getData("text/plain"));
-                  if (from !== i) {
-                    reorderPresetTexts(from, i);
-                  }
-                }}
-              >
-                <span className="text-slate-400 mr-1">☰</span>
-                <span className="flex-1 truncate text-slate-600">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
+              <div key={p.id} className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-md px-1.5 py-1">
+                <span className="text-[10px] text-slate-500 w-3 text-center">{i + 1}</span>
+                <span className="text-xs text-slate-600 max-w-[100px] truncate">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
+                <button
+                  className="text-[10px] text-slate-400 hover:text-brand-600 disabled:opacity-20 px-0.5"
+                  disabled={i === 0}
+                  onClick={() => reorderPresetTexts(i, i - 1)}
+                >▲</button>
+                <button
+                  className="text-[10px] text-slate-400 hover:text-brand-600 disabled:opacity-20 px-0.5"
+                  disabled={i === presetTexts.length - 1}
+                  onClick={() => reorderPresetTexts(i, i + 1)}
+                >▼</button>
               </div>
             ))}
           </div>
