@@ -19,14 +19,17 @@ interface ContextMenuState {
 export function OverviewCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const {
     grid, selectedRow, selectedCol, selectedCells, selectLabel, selectAll, layout,
     clearSelected, undo, clipboard, clipboardMode,
     copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
-    copyTo, reverseTo,
+    copyTo, reverseTo, setLayout, updateLabelRow, toggleLabelDelimiter,
   } = useStore();
   const [zoom, setZoom] = useState(1);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
+  const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
 
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
@@ -43,8 +46,65 @@ export function OverviewCanvas() {
   const cellH = cellW * aspect;
   const padding = 20;
   const sizeMargin = 18;
-  const labelMargin = 22; // 行番号・列番号用の余白
+  const labelMargin = 22;
 
+  // --- Edit mode helpers ---
+  const editingLabel = editingCell ? grid.labels[editingCell.row]?.[editingCell.col] : null;
+  const editingUseDelim = editingLabel ? (editingLabel.useDelimiter ?? true) : true;
+  const editingDelimIdx = editingUseDelim && layout.delimiter
+    ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+    : -1;
+
+  const getDelimiterState = (): 'center' | 'self' | 'partner' | 'none' => {
+    if (!editingUseDelim) return 'none';
+    return layout.delimiterAlign;
+  };
+
+  const delimiterCycle = useCallback(() => {
+    const current = getDelimiterState();
+    switch (current) {
+      case 'center':
+        setLayout({ delimiterAlign: 'self' });
+        break;
+      case 'self':
+        setLayout({ delimiterAlign: 'partner' });
+        break;
+      case 'partner':
+        toggleLabelDelimiter();
+        break;
+      case 'none':
+        toggleLabelDelimiter();
+        setLayout({ delimiterAlign: 'center' });
+        break;
+    }
+  }, [editingUseDelim, layout.delimiterAlign, setLayout, toggleLabelDelimiter]);
+
+  const getDelimiterDisplay = (state: 'center' | 'self' | 'partner' | 'none') => {
+    const d = layout.delimiter || '～';
+    switch (state) {
+      case 'center': return d + '中';
+      case 'self': return d + '上';
+      case 'partner': return d + '下';
+      case 'none': return '無し';
+    }
+  };
+
+  // --- Overlay position in container-relative coords ---
+  const getOverlayStyle = (): React.CSSProperties => {
+    if (!editingCell || !containerRef.current) return { display: 'none' };
+    const container = containerRef.current;
+    const left = (padding + sizeMargin + labelMargin + editingCell.col * cellW) * zoom - container.scrollLeft;
+    const top = (padding + sizeMargin + labelMargin + editingCell.row * cellH) * zoom - container.scrollTop;
+    return {
+      position: 'absolute' as const,
+      left: `${left}px`,
+      top: `${top}px`,
+      width: `${(cellW - 2) * zoom}px`,
+      height: `${(cellH - 2) * zoom}px`,
+    };
+  };
+
+  // --- Draw ---
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -63,17 +123,23 @@ export function OverviewCanvas() {
     ctx.scale(zoom, zoom);
     ctx.translate(padding + sizeMargin + labelMargin, padding + sizeMargin + labelMargin);
 
-    // 左上ブロックのサイズ表示
+    // 左上ブロックのサイズ表示（列番号・行番号より外側）
     ctx.fillStyle = "#64748b";
     ctx.font = "10px sans-serif";
     ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
-    ctx.fillText(`← ${layout.labelSize.widthMm}mm →`, cellW / 2, -4);
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${layout.labelSize.widthMm}mm`, cellW / 2, -(labelMargin + 8));
+    ctx.font = "8px sans-serif";
+    ctx.fillText("← →", cellW / 2, -(labelMargin + 8) + 12);
+
     ctx.save();
-    ctx.translate(-6, cellH / 2);
+    ctx.translate(-(labelMargin + 14), cellH / 2);
     ctx.rotate(-Math.PI / 2);
-    ctx.textBaseline = "bottom";
-    ctx.fillText(`← ${layout.labelSize.heightMm}mm →`, 0, 0);
+    ctx.textAlign = "center";
+    ctx.font = "10px sans-serif";
+    ctx.fillText(`${layout.labelSize.heightMm}mm`, 0, 0);
+    ctx.font = "8px sans-serif";
+    ctx.fillText("← →", 0, 12);
     ctx.restore();
 
     // 列番号（上部）
@@ -101,11 +167,22 @@ export function OverviewCanvas() {
         const label = grid.labels[r]?.[c];
         const isSelected = r === selectedRow && c === selectedCol;
         const isMultiSelected = selectedCells.has(cellKey(r, c));
+        const isEditing = editingCell !== null && r === editingCell.row && c === editingCell.col;
         const labelUseDelim = label ? (label.useDelimiter ?? true) : true;
         const labelDelimIdx = labelUseDelim && layout.delimiter
           ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
           : -1;
         const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
+
+        if (editingCell && !isEditing) {
+          // 編集モード中は他セルをグレーアウト
+          ctx.fillStyle = "#e2e8f0";
+          ctx.fillRect(x, y, cellW - 2, cellH - 2);
+          ctx.strokeStyle = "#cbd5e1";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+          continue;
+        }
 
         if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
         else if (isSelected) ctx.fillStyle = "#dbeafe";
@@ -124,6 +201,9 @@ export function OverviewCanvas() {
           ctx.lineWidth = 1;
         }
         ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+
+        // 編集中セルの文字はオーバーレイに任せる
+        if (isEditing) continue;
 
         if (label) {
           const displayTexts = getLabelDisplayTexts(label, layout);
@@ -158,7 +238,7 @@ export function OverviewCanvas() {
     }
 
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, labelMargin, clipboard, clipboardMode]);
+  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
 
   useEffect(() => {
     draw();
@@ -187,7 +267,20 @@ export function OverviewCanvas() {
     }
     const cell = getCellFromEvent(e);
     if (cell) {
+      // 編集中に別セルをクリック → 編集終了して選択切り替え
+      if (editingCell && (cell.row !== editingCell.row || cell.col !== editingCell.col)) {
+        setEditingCell(null);
+      }
       selectLabel(cell.row, cell.col, e.ctrlKey || e.metaKey, e.shiftKey);
+    }
+  };
+
+  const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const cell = getCellFromEvent(e);
+    if (cell) {
+      selectLabel(cell.row, cell.col, false, false);
+      setEditingCell({ row: cell.row, col: cell.col });
+      setTimeout(() => inputRefs.current[0]?.focus(), 0);
     }
   };
 
@@ -210,6 +303,17 @@ export function OverviewCanvas() {
       return () => window.removeEventListener("click", closeContextMenu);
     }
   }, [ctxMenu, closeContextMenu]);
+
+  // Escape で編集モード終了
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && editingCell) {
+        setEditingCell(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editingCell]);
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const container = containerRef.current;
@@ -249,6 +353,19 @@ export function OverviewCanvas() {
       setZoom((z) => Math.min(3, Math.max(0.3, +(z + delta).toFixed(2))));
     }
   };
+
+  // スクロール時にオーバーレイ位置更新
+  const [, setScrollPos] = useState(0);
+  const handleScroll = useCallback(() => {
+    setScrollPos((s) => s + 1); // force re-render
+  }, []);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [handleScroll]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -313,6 +430,18 @@ export function OverviewCanvas() {
 
   const ctxMenuDivider = () => <div className="border-t border-slate-100 my-1" />;
 
+  // デリミタ状態配列（サイクル順）
+  const delimStates: ('center' | 'self' | 'partner' | 'none')[] = ['center', 'self', 'partner', 'none'];
+  const currentDelimState = getDelimiterState();
+
+  const overlayStyle = getOverlayStyle();
+
+  // オーバーレイ内のinput行高さ
+  const overlayDelimBarH = 20;
+  const overlayInputAreaH = (ovStyle: React.CSSProperties) =>
+    ovStyle.height ? parseFloat(String(ovStyle.height)) - overlayDelimBarH * zoom : 0;
+  const overlayRowH = overlayInputAreaH(overlayStyle) / layout.itemsPerLabel / zoom;
+
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white rounded-t-lg">
@@ -337,19 +466,101 @@ export function OverviewCanvas() {
       </div>
 
       <div ref={containerRef} className="flex-1 overflow-auto p-2 cursor-grab active:cursor-grabbing select-none"
+        style={{ position: "relative" }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
         onWheel={handleWheel}>
-        <canvas ref={canvasRef} onClick={handleClick} onContextMenu={handleContextMenu} style={{ display: "block" }} />
+        <canvas
+          ref={canvasRef}
+          onClick={handleClick}
+          onDoubleClick={handleDoubleClick}
+          onContextMenu={handleContextMenu}
+          style={{ display: "block" }}
+        />
+
+        {/* 編集モード オーバーレイ */}
+        {editingCell && editingLabel && (
+          <div
+            ref={overlayRef}
+            className="z-40 bg-white/95 border-2 border-brand-600 rounded shadow-lg overflow-hidden"
+            style={overlayStyle}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* デリミタトグルバー */}
+            <div className="flex items-center gap-0.5 bg-brand-600 justify-center"
+              style={{ height: `${overlayDelimBarH * zoom}px` }}>
+              {delimStates.map((state) => {
+                const active = state === currentDelimState;
+                return (
+                  <button
+                    key={state}
+                    className={`px-1 text-[10px] font-bold rounded-sm leading-none ${
+                      active
+                        ? "bg-white text-brand-700"
+                        : "bg-brand-500 text-white/80 hover:bg-brand-400"
+                    }`}
+                    style={{ fontSize: `${Math.max(7, 10 * zoom)}px` }}
+                    onClick={delimiterCycle}
+                  >
+                    {getDelimiterDisplay(state)}
+                  </button>
+                );
+              })}
+            </div>
+            {/* 行インプット */}
+            {editingLabel.rows.map((row, i) => {
+              const isDelim = i === editingDelimIdx;
+              const readOnly = isDelim && editingUseDelim && !!layout.delimiter;
+              const displayValue = isDelim && editingUseDelim && !!layout.delimiter
+                ? layout.delimiter
+                : row.text;
+              return (
+                <div key={i} className="flex items-center"
+                  style={{ height: `${overlayRowH * zoom}px` }}>
+                  <span className="text-[8px] text-slate-400 text-right px-0.5"
+                    style={{ width: `${12 * zoom}px`, fontSize: `${Math.max(6, 8 * zoom)}px` }}>
+                    {i + 1}
+                  </span>
+                  <input
+                    ref={(el) => { inputRefs.current[i] = el; }}
+                    type="text"
+                    readOnly={readOnly}
+                    className={`flex-1 border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 ${
+                      readOnly
+                        ? "bg-red-50 text-red-600 font-bold text-center"
+                        : "bg-transparent"
+                    }`}
+                    style={{ fontSize: `${Math.max(7, 10 * zoom)}px` }}
+                    value={displayValue}
+                    onChange={(e) => updateLabelRow(i, e.target.value)}
+                    onFocus={() => {
+                      // 編集中セルを store の選択と一致させる
+                      if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
+                        selectLabel(editingCell.row, editingCell.col);
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setEditingCell(null);
+                      }
+                    }}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <div className="px-3 py-1.5 border-t border-slate-200 bg-white rounded-b-lg text-xs text-slate-600">
         選択: {selectedRow + 1}-{selectedCol + 1}
+        {editingCell && " (編集モード)"}
         {selectedCells.size > 1 && ` (複数: ${selectedCells.size}セル)`}
         （{grid.cols * grid.rows}面中）
-        <span className="ml-2 text-slate-400">右クリックでメニュー | Ctrl/Shift+クリックで複数選択 | ドラッグで移動 | Delでクリア | Ctrl+Zで戻す</span>
+        <span className="ml-2 text-slate-400">ダブルクリックで編集 | 右クリックでメニュー | Ctrl/Shift+クリックで複数選択 | ドラッグで移動 | Delでクリア | Ctrl+Zで戻す</span>
       </div>
 
       {/* 右クリックメニュー */}
@@ -359,7 +570,6 @@ export function OverviewCanvas() {
           style={{ left: ctxMenu.x, top: ctxMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* コピー系 */}
           {ctxMenuItem("コピー", () => copyToClipboard())}
           {ctxMenuDivider()}
           {ctxMenuItem("右にコピー", () => copyTo("right"), !canCopyRight)}
@@ -367,14 +577,12 @@ export function OverviewCanvas() {
           {ctxMenuItem("上にコピー", () => copyTo("up"), !canCopyUp)}
           {ctxMenuItem("下にコピー", () => copyTo("down"), !canCopyDown)}
           {ctxMenuDivider()}
-          {/* 反転コピー系 */}
           {ctxMenuItem("反転コピー", () => reverseCopyToClipboard())}
           {ctxMenuDivider()}
           {ctxMenuItem("右に反転コピー", () => reverseTo("right"), !canCopyRight)}
           {ctxMenuItem("左に反転コピー", () => reverseTo("left"), !canCopyLeft)}
           {ctxMenuItem("上に反転コピー", () => reverseTo("up"), !canCopyUp)}
           {ctxMenuItem("下に反転コピー", () => reverseTo("down"), !canCopyDown)}
-          {/* 貼り付け（クリップボードがある場合のみ） */}
           {clipboard && ctxMenuDivider()}
           {clipboard && clipboardMode === "copy" &&
             ctxMenuItem("貼り付け", () => pasteFromClipboard())
