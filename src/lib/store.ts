@@ -14,6 +14,7 @@ import { getDelimiterRowIndex, isDelimiterText } from "./delimiter";
 import { buildReversedLabel } from "./reverse";
 import { DEFAULT_PRESETS } from "./presets";
 import { DEFAULT_SIZE_PRESETS } from "./size-presets";
+import { DEFAULT_PRESET_TEXTS } from "./preset-texts";
 
 let labelIdCounter = 0;
 function nextId(): string {
@@ -69,6 +70,7 @@ export interface ProjectData {
   layout: LayoutConfig;
   presets: Preset[];
   sizePresets: SizePreset[];
+  presetTexts: PresetTextItem[];
   exportConfig: ExportConfig;
 }
 
@@ -154,7 +156,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
   presets: DEFAULT_PRESETS,
   sizePresets: DEFAULT_SIZE_PRESETS,
-  presetTexts: [],
+  presetTexts: DEFAULT_PRESET_TEXTS,
   clipboard: null,
   clipboardMode: null,
     history: [cloneGrid(initialGrid)],
@@ -508,7 +510,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   resetPresetTexts: () => {
-    set({ presetTexts: [] });
+    set({ presetTexts: [...DEFAULT_PRESET_TEXTS] });
   },
 
   applyPresetTextToSelected: (texts, rowIndex, cursorStart, cursorEnd) => {
@@ -683,9 +685,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getProjectData: () => {
-    const { grid, layout, presets, sizePresets, exportConfig } = get();
+    const { grid, layout, presets, sizePresets, presetTexts, exportConfig } = get();
     return {
-      version: 1,
+      version: 2,
       grid: cloneGrid(grid),
       layout: { ...layout },
       presets: presets.map((p) => ({ name: p.name, layout: { ...p.layout } })),
@@ -693,6 +695,7 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
+      presetTexts: presetTexts.map((p) => ({ id: p.id, text: [...p.text] })),
       exportConfig: { ...exportConfig },
     };
   },
@@ -707,6 +710,9 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
+      presetTexts: data.presetTexts
+        ? data.presetTexts.map((p: any) => ({ id: p.id, text: [...p.text] }))
+        : [],
       exportConfig: { ...data.exportConfig },
       selectedRow: 0,
       selectedCol: 0,

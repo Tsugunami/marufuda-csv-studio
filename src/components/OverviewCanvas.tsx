@@ -599,7 +599,7 @@ export function OverviewCanvas() {
               className="absolute z-50"
               style={{
                 left: `calc(${overlayStyle.left} + ${overlayStyle.width} / 2 - 28px)`,
-                top: `calc(${overlayStyle.top} - 26px)`,
+                top: `calc(${overlayStyle.top} - 36px)`,
               }}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
