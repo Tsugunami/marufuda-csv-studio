@@ -128,7 +128,7 @@ export default function App() {
       const baseName = filename.replace(/\.(csv|xlsx)$/i, "");
 
       const dataRows = has_header ? rows.slice(1) : rows;
-      const csvItemsPerLabel = rows[0]?.length || 0;
+      const csvItemsPerLabel = Math.max(...dataRows.map((r) => r.length), 0);
       const csvTotalLabels = dataRows.length;
 
       const currentTotalLabels = layout.blockCols * layout.blockRows;

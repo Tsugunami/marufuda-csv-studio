@@ -172,6 +172,17 @@ fn export_xlsx(request: CsvExportRequest) -> Result<String, String> {
 fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
     use calamine::{Reader, open_workbook_auto, Data};
 
+    eprintln!("[import_xlsx] path: {}", path);
+
+    // ファイルの存在確認
+    if !std::path::Path::new(&path).exists() {
+        eprintln!("[import_xlsx] ファイルが存在しません");
+        return Err("ファイルが存在しません".to_string());
+    }
+
+    let file_len = std::fs::metadata(&path).map_err(|e| format!("メタデータ取得エラー: {}", e))?.len();
+    eprintln!("[import_xlsx] ファイルサイズ: {} bytes", file_len);
+
     let mut workbook = open_workbook_auto(&path)
         .map_err(|e| format!("xlsxファイル読み込みエラー: {}", e))?;
 
@@ -185,27 +196,36 @@ fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
     let range = workbook.worksheet_range(first_sheet)
         .map_err(|e| format!("シート読み込みエラー: {}", e))?;
 
+    // 各行を読み込み、末尾の空セルをトリム、全セル空の行はスキップ
     let mut rows: Vec<Vec<String>> = Vec::new();
     for row in range.rows() {
-        let cells: Vec<String> = row.iter().map(|cell| {
-            match cell {
-                Data::String(s) => s.clone(),
-                Data::Int(i) => i.to_string(),
-                Data::Float(f) => {
-                    // 整数の場合は小数点以下を表示しない
-                    if *f == f.trunc() {
-                        format!("{}", *f as i64)
-                    } else {
-                        format!("{}", f)
-                    }
+        let mut cells: Vec<String> = row.iter().map(|cell| match cell {
+            Data::String(s) => s.clone(),
+            Data::Int(i) => i.to_string(),
+            Data::Float(f) => {
+                if *f == f.trunc() {
+                    format!("{}", *f as i64)
+                } else {
+                    format!("{}", f)
                 }
-                Data::Bool(b) => b.to_string(),
-                Data::DateTime(dt) => dt.to_string(),
-                Data::Error(e) => format!("{:?}", e),
-                Data::Empty => String::new(),
-                _ => String::new(),
             }
+            Data::Bool(b) => b.to_string(),
+            Data::DateTime(dt) => dt.to_string(),
+            Data::DateTimeIso(s) => s.clone(),
+            Data::DurationIso(s) => s.clone(),
+            Data::Error(e) => format!("{:?}", e),
+            Data::Empty => String::new(),
         }).collect();
+
+        // 末尾の空セルを除去
+        while cells.last().map(|s| s.is_empty()).unwrap_or(false) {
+            cells.pop();
+        }
+
+        // 全セル空の行はスキップ（ただし1行目は空でも保持）
+        if cells.is_empty() && !rows.is_empty() {
+            continue;
+        }
         rows.push(cells);
     }
 
@@ -218,6 +238,8 @@ fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
     } else {
         false
     };
+
+    eprintln!("[import_xlsx] has_header: {}", has_header);
 
     Ok(CsvImportResult { rows, has_header })
 }
