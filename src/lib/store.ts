@@ -102,6 +102,7 @@ interface AppState {
   setExportConfig: (config: Partial<ExportConfig>) => void;
   addPreset: (name: string) => void;
   deletePreset: (index: number) => void;
+  overwritePreset: (index: number) => void;
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
   applySizePreset: (index: number) => void;
@@ -464,6 +465,15 @@ export const useStore = create<AppState>((set, get) => ({
     deletePreset: (index) => {
     const { presets } = get();
     set({ presets: presets.filter((_, i) => i !== index) });
+  },
+
+  overwritePreset: (index) => {
+    const { layout, presets } = get();
+    const preset = presets[index];
+    if (!preset) return;
+    const updated = [...presets];
+    updated[index] = { ...preset, layout: { ...layout } };
+    set({ presets: updated });
   },
 
   addSizePreset: (name) => {

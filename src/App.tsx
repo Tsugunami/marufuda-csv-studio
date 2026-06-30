@@ -295,7 +295,7 @@ export default function App() {
       {/* メイン */}
       <div className="flex flex-1 overflow-hidden">
         {/* 左サイドバー: 設定 */}
-        <aside className="w-64 shrink-0 overflow-auto p-3 bg-slate-100 border-r border-slate-200">
+        <aside className="w-72 shrink-0 overflow-y-auto p-3 bg-slate-100 border-r border-slate-200">
           <LayoutConfigPanel />
         </aside>
 
