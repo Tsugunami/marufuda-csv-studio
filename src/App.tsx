@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { LayoutConfigPanel } from "./components/LayoutConfigPanel";
 import { OverviewCanvas } from "./components/OverviewCanvas";
 import { LabelEditor } from "./components/LabelEditor";
@@ -8,6 +8,7 @@ import type { LayoutConfig } from "./lib/types";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface ImportModalData {
   filename: string;
@@ -19,12 +20,18 @@ interface ImportModalData {
   currentBlockRows: number;
   currentItemsPerLabel: number;
   currentTotalLabels: number;
-  // 0=完全一致(通さない), 1=プリセット完全一致, 2=ブロック数一致のみ(行数違い)
   matchType: 0 | 1 | 2;
   matchingPresetName: string;
   csvRows: string[][];
   csvHasHeader: boolean;
   newLayout: LayoutConfig;
+}
+
+interface HistoryEntry {
+  name: string;
+  timestamp: string;
+  filename: string;
+  project_json: string;
 }
 
 export default function App() {
@@ -37,6 +44,7 @@ export default function App() {
     importCsvData,
     setCsvFilename,
     applyPreset,
+    setLayout,
   } = useStore();
   const [statusMsg, setStatusMsg] = useState("");
   const [importModal, setImportModal] = useState<ImportModalData | null>(null);
@@ -46,6 +54,87 @@ export default function App() {
     newLayout?: LayoutConfig;
     filename: string;
   } | null>(null);
+  const [saveConfirmModal, setSaveConfirmModal] = useState<{ filename: string } | null>(null);
+
+  // ペイン幅
+  const [leftPaneWidth, setLeftPaneWidth] = useState(288);
+  const [rightPaneWidth, setRightPaneWidth] = useState(320);
+  const [historyList, setHistoryList] = useState<HistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+
+  const resizing = useRef<"left" | "right" | null>(null);
+
+  // 自動保存・自動読み込み
+  useEffect(() => {
+    // 起動時に設定を読み込む
+    (async () => {
+      try {
+        const settings = await invoke<{ project_json: string; pane_widths: string }>("load_settings");
+        if (settings.pane_widths) {
+          const pw = JSON.parse(settings.pane_widths);
+          if (pw.left) setLeftPaneWidth(pw.left);
+          if (pw.right) setRightPaneWidth(pw.right);
+        }
+        if (settings.project_json) {
+          const data = JSON.parse(settings.project_json);
+          loadProjectData(data);
+          setStatusMsg("前回の作業を復元しました");
+        }
+      } catch {
+        // 設定がない場合は何もしない
+      }
+    })();
+  }, []);
+
+  // 自動保存関数
+  const autoSave = useCallback(async () => {
+    try {
+      const data = getProjectData();
+      const projectJson = JSON.stringify(data);
+      const paneWidths = JSON.stringify({ left: leftPaneWidth, right: rightPaneWidth });
+      await invoke("save_settings", { projectJson, paneWidths });
+    } catch {
+      // 自動保存の失敗は無視
+    }
+  }, [getProjectData, leftPaneWidth, rightPaneWidth]);
+
+  // 閉じる時の自動保存
+  useEffect(() => {
+    const unlisten = getCurrentWindow().onCloseRequested(async () => {
+      await autoSave();
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, [autoSave]);
+
+  // 履歴一覧読み込み
+  const loadHistory = useCallback(async () => {
+    try {
+      const list = await invoke<HistoryEntry[]>("load_history_list");
+      setHistoryList(list);
+    } catch {
+      setHistoryList([]);
+    }
+  }, []);
+
+  // 保存確認モーダル（ExportBar からの呼び出し用）
+  const handleShowSaveConfirm = (filename: string) => {
+    setSaveConfirmModal({ filename });
+  };
+
+  const handleSaveConfirmYes = async () => {
+    if (!saveConfirmModal) return;
+    try {
+      const data = getProjectData();
+      const projectJson = JSON.stringify(data);
+      const name = saveConfirmModal.filename.replace(/\.(csv|xlsx)$/i, "") || "unnamed";
+      await invoke("save_history", { name, projectJson });
+      setStatusMsg(`ラベル情報を保存しました: ${name}`);
+      loadHistory();
+    } catch (e) {
+      setStatusMsg(`保存エラー: ${e}`);
+    }
+    setSaveConfirmModal(null);
+  };
 
   const handleSaveProject = async () => {
     try {
@@ -85,6 +174,26 @@ export default function App() {
     }
   };
 
+  // 履歴からの復元
+  const handleRestoreHistory = async (entry: HistoryEntry) => {
+    try {
+      const data = JSON.parse(entry.project_json);
+      loadProjectData(data);
+      setStatusMsg(`履歴から復元: ${entry.name} (${entry.timestamp})`);
+    } catch (e) {
+      setStatusMsg(`復元エラー: ${e}`);
+    }
+  };
+
+  const handleDeleteHistory = async (entry: HistoryEntry) => {
+    try {
+      await invoke("delete_history", { filename: entry.filename });
+      loadHistory();
+    } catch {
+      // ignore
+    }
+  };
+
   const doImport = (
     csvRows: string[][],
     csvHasHeader: boolean,
@@ -93,8 +202,8 @@ export default function App() {
   ) => {
     const ok = importCsvData(csvRows, csvHasHeader, newLayout);
     if (ok) {
-    setCsvFilename(filename);
-    setStatusMsg(`読込完了: ${filename}`);
+      setCsvFilename(filename);
+      setStatusMsg(`読込完了: ${filename}`);
     } else {
       setStatusMsg("CSV読込エラー: データ構造が一致しません");
     }
@@ -134,27 +243,16 @@ export default function App() {
       const currentTotalLabels = layout.blockCols * layout.blockRows;
       const currentItemsPerLabel = layout.itemsPerLabel;
 
-      // 完全一致チェック
-      if (
-        currentTotalLabels === csvTotalLabels &&
-        currentItemsPerLabel === csvItemsPerLabel
-      ) {
-        // 現在のレイアウトでそのまま読込
+      if (currentTotalLabels === csvTotalLabels && currentItemsPerLabel === csvItemsPerLabel) {
         setCsvFilename(baseName);
         if (hasExistingData()) {
-          setOverwriteModal({
-            filename: baseName,
-            csvRows: rows,
-            csvHasHeader: has_header,
-            newLayout: undefined,
-          });
+          setOverwriteModal({ filename: baseName, csvRows: rows, csvHasHeader: has_header, newLayout: undefined });
         } else {
           doImport(rows, has_header, undefined, baseName);
         }
         return;
       }
 
-      // プリセットから完全一致を検索
       let matchType: 0 | 1 | 2 = 0;
       let matchingPresetName = "";
       let csvBlockCols = 0;
@@ -163,10 +261,7 @@ export default function App() {
 
       for (let i = 0; i < presets.length; i++) {
         const p = presets[i];
-        if (
-          p.layout.blockCols * p.layout.blockRows === csvTotalLabels &&
-          p.layout.itemsPerLabel === csvItemsPerLabel
-        ) {
+        if (p.layout.blockCols * p.layout.blockRows === csvTotalLabels && p.layout.itemsPerLabel === csvItemsPerLabel) {
           matchType = 1;
           matchingPresetName = p.name;
           csvBlockCols = p.layout.blockCols;
@@ -176,7 +271,6 @@ export default function App() {
         }
       }
 
-      // プリセット完全一致がなければ、ブロック数のみ一致するプリセットを検索
       if (matchType === 0) {
         for (let i = 0; i < presets.length; i++) {
           const p = presets[i];
@@ -185,19 +279,13 @@ export default function App() {
             matchingPresetName = p.name;
             csvBlockCols = p.layout.blockCols;
             csvBlockRows = p.layout.blockRows;
-            // プリセットのブロック構成を採用しつつ、ラベル内行数はCSVに合わせる
-            newLayout = {
-              ...p.layout,
-              itemsPerLabel: csvItemsPerLabel,
-            };
+            newLayout = { ...p.layout, itemsPerLabel: csvItemsPerLabel };
             break;
           }
         }
       }
 
-      // プリセットが見つからなくてもブロック数だけでも推測
       if (matchType === 0) {
-        // 現在のブロック構成のまま行数だけ変更
         if (currentTotalLabels === csvTotalLabels) {
           matchType = 2;
           matchingPresetName = "（現在の構成）";
@@ -205,29 +293,19 @@ export default function App() {
           csvBlockRows = layout.blockRows;
           newLayout = { ...layout, itemsPerLabel: csvItemsPerLabel };
         } else {
-          // ブロック数も違う → 読込不可
-          setStatusMsg(
-            `CSV読込エラー: CSVのラベル数(${csvTotalLabels})が現在のブロック数(${currentTotalLabels})と一致しません。`
-          );
-          return;
+          csvBlockCols = layout.blockCols;
+          csvBlockRows = Math.ceil(csvTotalLabels / csvBlockCols);
+          matchingPresetName = `（${csvBlockCols}×${csvBlockRows}）`;
+          matchType = 2;
+          newLayout = { ...layout, blockCols: csvBlockCols, blockRows: csvBlockRows, itemsPerLabel: csvItemsPerLabel };
         }
       }
 
       setImportModal({
-        filename: baseName,
-        csvTotalLabels,
-        csvItemsPerLabel,
-        csvBlockCols,
-        csvBlockRows,
-        currentBlockCols: layout.blockCols,
-        currentBlockRows: layout.blockRows,
-        currentItemsPerLabel: layout.itemsPerLabel,
-        currentTotalLabels,
-        matchType,
-        matchingPresetName,
-        csvRows: rows,
-        csvHasHeader: has_header,
-        newLayout,
+        filename: baseName, csvTotalLabels, csvItemsPerLabel, csvBlockCols, csvBlockRows,
+        currentBlockCols: layout.blockCols, currentBlockRows: layout.blockRows,
+        currentItemsPerLabel: layout.itemsPerLabel, currentTotalLabels,
+        matchType, matchingPresetName, csvRows: rows, csvHasHeader: has_header, newLayout,
       });
     } catch (e) {
       setStatusMsg(`CSV読込エラー: ${e}`);
@@ -237,21 +315,13 @@ export default function App() {
   const handleImportModalYes = () => {
     if (!importModal) return;
     const { csvRows, csvHasHeader, newLayout, filename, matchType, matchingPresetName } = importModal;
-
-    // プリセット完全一致ならプリセット適用
     if (matchType === 1) {
       const presetIdx = presets.findIndex((p) => p.name === matchingPresetName);
       if (presetIdx >= 0) applyPreset(presetIdx);
     }
-
     if (hasExistingData()) {
       setImportModal(null);
-      setOverwriteModal({
-        filename,
-        csvRows,
-        csvHasHeader,
-        newLayout,
-      });
+      setOverwriteModal({ filename, csvRows, csvHasHeader, newLayout });
     } else {
       doImport(csvRows, csvHasHeader, newLayout, filename);
       setImportModal(null);
@@ -265,6 +335,40 @@ export default function App() {
     setOverwriteModal(null);
   };
 
+  // ペインリサイズ
+  const handleResizeStart = (side: "left" | "right") => (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizing.current = side;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      if (resizing.current === "left") {
+        setLeftPaneWidth(Math.max(200, Math.min(500, e.clientX)));
+      } else {
+        const total = window.innerWidth;
+        setRightPaneWidth(Math.max(200, Math.min(500, total - e.clientX)));
+      }
+    };
+    const handleMouseUp = () => {
+      if (resizing.current) {
+        resizing.current = null;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        autoSave();
+      }
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [autoSave]);
+
   return (
     <div className="flex flex-col h-screen">
       {/* ヘッダー */}
@@ -274,6 +378,11 @@ export default function App() {
           A-ONE ラベル屋さん™ 差し込み印刷用 CSV 作成ツール
         </span>
         <div className="ml-auto flex items-center gap-2">
+          <button
+            className="px-3 py-1 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white"
+            onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); }}
+            title="保存履歴"
+          >📋 履歴</button>
           <button
             className="px-3 py-1 text-xs rounded bg-emerald-600 hover:bg-emerald-500 text-white"
             onClick={handleImportCsv}
@@ -292,27 +401,74 @@ export default function App() {
         </div>
       </header>
 
-      {/* メイン */}
+      {/* メイン 3ペイン */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 左サイドバー: 設定 */}
-        <aside className="w-72 shrink-0 overflow-y-auto p-3 bg-slate-100 border-r border-slate-200">
+        {/* 左ペイン */}
+        <aside className="shrink-0 overflow-y-auto p-3 bg-slate-100 border-r border-slate-200"
+          style={{ width: leftPaneWidth }}>
           <LayoutConfigPanel />
         </aside>
+        {/* 左リサイズハンドル */}
+        <div
+          className="shrink-0 w-1 cursor-col-resize bg-transparent hover:bg-brand-400 active:bg-brand-500 transition-colors"
+          onMouseDown={handleResizeStart("left")}
+        />
 
-        {/* 中央: 全体ビュー */}
+        {/* 中央 */}
         <main className="flex-1 p-3 overflow-hidden">
           <OverviewCanvas />
         </main>
 
-        {/* 右サイドバー: ラベル編集 */}
-        <aside className="w-80 shrink-0 p-3 overflow-auto bg-slate-100 border-l border-slate-200">
-          <LabelEditor />
+        {/* 右リサイズハンドル */}
+        <div
+          className="shrink-0 w-1 cursor-col-resize bg-transparent hover:bg-brand-400 active:bg-brand-500 transition-colors"
+          onMouseDown={handleResizeStart("right")}
+        />
+        {/* 右ペイン */}
+        <aside className="shrink-0 overflow-auto bg-slate-100 border-l border-slate-200"
+          style={{ width: rightPaneWidth }}>
+          {showHistory ? (
+            <div className="p-3 h-full flex flex-col">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-slate-700">保存履歴</h3>
+                <button
+                  className="text-xs text-slate-400 hover:text-slate-600"
+                  onClick={() => setShowHistory(false)}
+                >✕ 閉じる</button>
+              </div>
+              <div className="flex-1 overflow-y-auto space-y-1">
+                {historyList.length === 0 && (
+                  <p className="text-xs text-slate-400 text-center py-4">履歴はありません</p>
+                )}
+                {historyList.map((entry) => (
+                  <div key={entry.filename} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-slate-50 border border-slate-200">
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate font-medium text-slate-700">{entry.name}</p>
+                      <p className="text-slate-400 text-[10px]">{entry.timestamp}</p>
+                    </div>
+                    <button
+                      className="text-blue-500 hover:text-blue-700 shrink-0"
+                      onClick={() => handleRestoreHistory(entry)}
+                      title="復元"
+                    >開く</button>
+                    <button
+                      className="text-red-400 hover:text-red-600 shrink-0"
+                      onClick={() => handleDeleteHistory(entry)}
+                      title="削除"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <LabelEditor />
+          )}
         </aside>
       </div>
 
-      {/* 下部: エクスポート */}
+      {/* 下部 */}
       <footer className="shrink-0 border-t border-slate-200">
-        <ExportBar />
+        <ExportBar onSaveConfirm={handleShowSaveConfirm} />
         {statusMsg && (
           <div className="px-4 py-1 text-xs text-slate-500 bg-slate-50 border-t border-slate-200">
             {statusMsg}
@@ -320,7 +476,7 @@ export default function App() {
         )}
       </footer>
 
-      {/* CSV読込 レイアウト確認モーダル */}
+      {/* モーダル群… */}
       {importModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-96 max-w-[90vw]">
@@ -340,60 +496,56 @@ export default function App() {
                 <p>ラベル内行数：{importModal.currentItemsPerLabel}行</p>
               </div>
               {importModal.matchType === 1 && (
-                <p className="text-slate-700">
-                  構成が違うのでプリセット「{importModal.matchingPresetName}」に切り替えて読み込みますか？
-                </p>
+                <p className="text-slate-700">構成が違うのでプリセット「{importModal.matchingPresetName}」に切り替えて読み込みますか？</p>
               )}
               {importModal.matchType === 2 && (
                 <div className="space-y-1">
-                  <p className="text-amber-700 font-medium">
-                    ⚠ ラベル内行数が異なります
-                  </p>
-                  <p className="text-slate-700">
-                    ブロック数は一致しますが、ラベル内行数が
-                    <strong>{importModal.currentItemsPerLabel}行 → {importModal.csvItemsPerLabel}行</strong>
-                    に変更されます。
-                  </p>
-                  <p className="text-slate-500">
-                    ※ 行数が増えた場合は末尾に空行が追加されます。行数が減った場合は末尾のデータが切り捨てられます。
-                  </p>
-                  <p className="text-slate-700">
-                    「{importModal.matchingPresetName}」の構成で読み込みますか？
-                  </p>
+                  <p className="text-amber-700 font-medium">⚠ ラベル内行数が異なります</p>
+                  <p className="text-slate-700">ブロック数は一致しますが、ラベル内行数が
+                    <strong>{importModal.currentItemsPerLabel}行 → {importModal.csvItemsPerLabel}行</strong>に変更されます。</p>
+                  <p className="text-slate-500">※ 行数が増えた場合は末尾に空行が追加されます。行数が減った場合は末尾のデータが切り捨てられます。</p>
+                  <p className="text-slate-700">「{importModal.matchingPresetName}」の構成で読み込みますか？</p>
                 </div>
               )}
             </div>
             <div className="flex gap-2 justify-end">
-              <button
-                className="px-4 py-1.5 text-xs rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
-                onClick={() => setImportModal(null)}
-              >いいえ</button>
-              <button
-                className="px-4 py-1.5 text-xs rounded bg-brand-600 hover:bg-brand-700 text-white"
-                onClick={handleImportModalYes}
-              >はい</button>
+              <button className="px-4 py-1.5 text-xs rounded bg-slate-200 hover:bg-slate-300 text-slate-700" onClick={() => setImportModal(null)}>いいえ</button>
+              <button className="px-4 py-1.5 text-xs rounded bg-brand-600 hover:bg-brand-700 text-white" onClick={handleImportModalYes}>はい</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* 上書き確認モーダル */}
       {overwriteModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-[90vw]">
             <h3 className="text-sm font-bold text-slate-800 mb-3">上書き確認</h3>
+            <p className="text-xs text-slate-600 mb-4">既存の入力データが上書きされます。よろしいですか？</p>
+            <div className="flex gap-2 justify-end">
+              <button className="px-4 py-1.5 text-xs rounded bg-slate-200 hover:bg-slate-300 text-slate-700" onClick={() => setOverwriteModal(null)}>いいえ</button>
+              <button className="px-4 py-1.5 text-xs rounded bg-red-600 hover:bg-red-700 text-white" onClick={handleOverwriteYes}>はい（上書き）</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveConfirmModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl p-6 w-80 max-w-[90vw]">
+            <h3 className="text-sm font-bold text-slate-800 mb-3">保存確認</h3>
             <p className="text-xs text-slate-600 mb-4">
-              既存の入力データが上書きされます。よろしいですか？
+              ラベル情報を保存してから出力しますか？<br />
+              「保存して出力」を選ぶと、今のラベルデータが履歴に保存された後にCSV/Excelが出力されます。
             </p>
             <div className="flex gap-2 justify-end">
               <button
                 className="px-4 py-1.5 text-xs rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
-                onClick={() => setOverwriteModal(null)}
-              >いいえ</button>
+                onClick={() => setSaveConfirmModal(null)}
+              >CSVのみ出力</button>
               <button
-                className="px-4 py-1.5 text-xs rounded bg-red-600 hover:bg-red-700 text-white"
-                onClick={handleOverwriteYes}
-              >はい（上書き）</button>
+                className="px-4 py-1.5 text-xs rounded bg-brand-600 hover:bg-brand-700 text-white"
+                onClick={handleSaveConfirmYes}
+              >保存して出力</button>
             </div>
           </div>
         </div>

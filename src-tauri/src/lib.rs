@@ -2,7 +2,8 @@ mod csv_export;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CsvRow {
@@ -20,6 +21,12 @@ pub struct CsvExportRequest {
 pub struct CsvImportResult {
     pub rows: Vec<Vec<String>>,
     pub has_header: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SettingsData {
+    pub project_json: String,      // ProjectData のJSON文字列
+    pub pane_widths: String,       // ペイン幅のJSON文字列
 }
 
 #[tauri::command]
@@ -196,11 +203,14 @@ fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
     let range = workbook.worksheet_range(first_sheet)
         .map_err(|e| format!("シート読み込みエラー: {}", e))?;
 
-    // 各行を読み込み、末尾の空セルをトリム、全セル空の行はスキップ
+        // 全セルをそのまま読み込む（空セルも保持）
+    // 列数は range.width() から直接取得する
+    let max_cols = range.width();
     let mut rows: Vec<Vec<String>> = Vec::new();
+
     for row in range.rows() {
         let mut cells: Vec<String> = row.iter().map(|cell| match cell {
-            Data::String(s) => s.clone(),
+            Data::String(s) => s.trim().to_string(),
             Data::Int(i) => i.to_string(),
             Data::Float(f) => {
                 if *f == f.trunc() {
@@ -217,15 +227,22 @@ fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
             Data::Empty => String::new(),
         }).collect();
 
-        // 末尾の空セルを除去
-        while cells.last().map(|s| s.is_empty()).unwrap_or(false) {
-            cells.pop();
+        // 各セルの末尾の空白も除去
+        for cell in cells.iter_mut() {
+            *cell = cell.trim().to_string();
         }
 
-        // 全セル空の行はスキップ（ただし1行目は空でも保持）
-        if cells.is_empty() && !rows.is_empty() {
+        // 全セル空の行はスキップ
+        let all_empty = cells.iter().all(|c| c.is_empty());
+        if all_empty {
             continue;
         }
+
+        // 列数を max_cols に統一（不足分は空文字でパディング）
+        while cells.len() < max_cols {
+            cells.push(String::new());
+        }
+
         rows.push(cells);
     }
 
@@ -244,11 +261,109 @@ fn import_xlsx(path: String) -> Result<CsvImportResult, String> {
     Ok(CsvImportResult { rows, has_header })
 }
 
+#[tauri::command]
+fn save_settings(project_json: String, pane_widths: String) -> Result<String, String> {
+    let data = SettingsData {
+        project_json,
+        pane_widths,
+    };
+    let json = serde_json::to_string(&data).map_err(|e| format!("シリアライズエラー: {}", e))?;
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio");
+    fs::create_dir_all(&dir).map_err(|e| format!("ディレクトリ作成エラー: {}", e))?;
+    let path = dir.join("settings.json");
+    fs::write(&path, &json).map_err(|e| format!("設定ファイル書き込みエラー: {}", e))?;
+    Ok(path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+fn load_settings() -> Result<SettingsData, String> {
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio");
+    let path = dir.join("settings.json");
+    if !path.exists() {
+        return Err("設定ファイルがありません".to_string());
+    }
+    let json = fs::read_to_string(&path).map_err(|e| format!("設定ファイル読み込みエラー: {}", e))?;
+    let data: SettingsData = serde_json::from_str(&json).map_err(|e| format!("設定ファイルパースエラー: {}", e))?;
+    Ok(data)
+}
+
+#[tauri::command]
+fn save_history(name: String, project_json: String) -> Result<String, String> {
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio")
+        .join("history");
+    fs::create_dir_all(&dir).map_err(|e| format!("履歴ディレクトリ作成エラー: {}", e))?;
+    let timestamp = chrono::Local::now().format("%Y%m%d_%H%M%S").to_string();
+    let safe_name = name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_");
+    let filename = format!("{}_{}.json", timestamp, if safe_name.is_empty() { "unnamed" } else { &safe_name });
+    let path = dir.join(&filename);
+    // メタデータ付きで保存
+    let entry = serde_json::json!({
+        "name": name,
+        "timestamp": timestamp,
+        "project_json": project_json,
+    });
+    fs::write(&path, serde_json::to_string_pretty(&entry).unwrap())
+        .map_err(|e| format!("履歴書き込みエラー: {}", e))?;
+    Ok(filename)
+}
+
+#[tauri::command]
+fn load_history_list() -> Result<Vec<serde_json::Value>, String> {
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio")
+        .join("history");
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<serde_json::Value> = Vec::new();
+    let mut read_dir = fs::read_dir(&dir).map_err(|e| format!("履歴ディレクトリ読み込みエラー: {}", e))?;
+    while let Some(entry) = read_dir.next().transpose().map_err(|e| format!("エントリ読み込みエラー: {}", e))? {
+        let path = entry.path();
+        if path.extension().map(|e| e == "json").unwrap_or(false) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    entries.push(val);
+                }
+            }
+        }
+    }
+    // タイムスタンプ降順にソート
+    entries.sort_by(|a, b| {
+        let ta = a["timestamp"].as_str().unwrap_or("");
+        let tb = b["timestamp"].as_str().unwrap_or("");
+        tb.cmp(ta)
+    });
+    Ok(entries)
+}
+
+#[tauri::command]
+fn delete_history(filename: String) -> Result<(), String> {
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio")
+        .join("history");
+    let path = dir.join(&filename);
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("履歴削除エラー: {}", e))?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![export_csv, import_csv, export_xlsx, import_xlsx])
+        .invoke_handler(tauri::generate_handler![
+            export_csv, import_csv, export_xlsx, import_xlsx,
+            save_settings, load_settings, save_history, load_history_list, delete_history
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

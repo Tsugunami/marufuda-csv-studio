@@ -503,7 +503,7 @@ export function OverviewCanvas() {
 
       {/* 定型文プリセットバー */}
       {!reorderMode && presetTexts.length > 0 && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-200 bg-white overflow-x-auto">
+        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-200 bg-white flex-wrap">
           <span className="text-[10px] text-slate-400 shrink-0 mr-1">📋</span>
           <button
             className="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-100"

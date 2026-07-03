@@ -588,7 +588,8 @@ export const useStore = create<AppState>((set, get) => ({
     const blockRows = layout.blockRows;
     const totalLabels = blockCols * blockRows;
 
-    if (dataRows.length !== totalLabels) return false;
+    // データ行数が totalLabels 未満の場合でも許容（不足分は空ラベルで埋める）
+    if (dataRows.length > totalLabels) return false;
 
     // 第1パス: 最初のデリミタを検出し、delimiter と delimiterAlign を決定
     let detectedDelimiter: string | null = null;

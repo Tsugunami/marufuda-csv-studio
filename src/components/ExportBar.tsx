@@ -4,7 +4,11 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { useStore } from "../lib/store";
 import { buildCsvMatrix } from "../lib/csv-build";
 
-export function ExportBar() {
+interface Props {
+  onSaveConfirm?: (filename: string) => void;
+}
+
+export function ExportBar({ onSaveConfirm }: Props) {
   const { grid, exportConfig, layout, csvFilename } = useStore();
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<string>("");
@@ -44,6 +48,11 @@ export function ExportBar() {
       });
 
       setMessage(`出力完了: ${result}`);
+      // 保存確認モーダルを表示
+      if (onSaveConfirm) {
+        const name = csvFilename.trim() || `marufuda_${new Date().toISOString().slice(0, 10).replace(/-/g, "")}`;
+        onSaveConfirm(name);
+      }
     } catch (e) {
       setMessage(`エラー: ${e}`);
     } finally {
