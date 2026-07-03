@@ -8,7 +8,6 @@ import type { LayoutConfig } from "./lib/types";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface ImportModalData {
   filename: string;
@@ -98,12 +97,10 @@ export default function App() {
     }
   }, [getProjectData, leftPaneWidth, rightPaneWidth]);
 
-  // 閉じる時の自動保存
+  // 定期自動保存（30秒ごと）— 閉じるボタンで終了できない問題を回避
   useEffect(() => {
-    const unlisten = getCurrentWindow().onCloseRequested(async () => {
-      await autoSave();
-    });
-    return () => { unlisten.then((f) => f()); };
+    const interval = setInterval(() => { autoSave(); }, 30000);
+    return () => clearInterval(interval);
   }, [autoSave]);
 
   // 履歴一覧読み込み
