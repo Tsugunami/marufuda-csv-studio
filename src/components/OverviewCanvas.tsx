@@ -40,9 +40,8 @@ export function OverviewCanvas() {
   const dragMoved = useRef(false);
   const mouseDownPos = useRef({ x: 0, y: 0 });
 
-  const rowLineH = 11;
-  const cellHeaderH = 6;
-  const minCellH = cellHeaderH + layout.itemsPerLabel * rowLineH + 6;
+    const rowLineH = 11;
+  const minCellH = layout.itemsPerLabel * rowLineH;
   const aspect = layout.labelSize.heightMm / layout.labelSize.widthMm;
 
   const baseW = 90;
@@ -56,32 +55,49 @@ export function OverviewCanvas() {
   const editingLabel = editingCell ? grid.labels[editingCell.row]?.[editingCell.col] : null;
   const editingUseDelim = editingLabel ? (editingLabel.useDelimiter ?? true) : true;
   const editingDelimIdx = editingUseDelim && layout.delimiter
-    ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+    ? getDelimiterRowIndex(layout.itemsPerLabel, editingLabel?.delimiterAlign ?? layout.delimiterAlign)
     : -1;
+
+  const isEvenRows = layout.itemsPerLabel % 2 === 0;
+  const effectiveAlign = isEvenRows && editingLabel?.delimiterAlign === 'center'
+    ? 'self' : (editingLabel?.delimiterAlign ?? layout.delimiterAlign);
 
   const getDelimiterState = (): 'center' | 'self' | 'partner' | 'none' => {
     if (!editingUseDelim) return 'none';
-    return layout.delimiterAlign;
+    // 偶数行の場合は「中」を「上」に読み替えて表示
+    if (isEvenRows && effectiveAlign === 'center') return 'self';
+    return effectiveAlign;
   };
 
   const delimiterCycle = useCallback(() => {
     const current = getDelimiterState();
-    switch (current) {
-      case 'center':
-        setLayout({ delimiterAlign: 'self' });
-        break;
-      case 'self':
-        setLayout({ delimiterAlign: 'partner' });
-        break;
-      case 'partner':
-        toggleLabelDelimiter();
-        break;
-      case 'none':
-        toggleLabelDelimiter();
-        setLayout({ delimiterAlign: 'center' });
-        break;
+    if (isEvenRows) {
+      // 偶数行: 無 → 上 → 下 → 無
+      switch (current) {
+        case 'none':
+          toggleLabelDelimiter();
+          setLayout({ delimiterAlign: 'self' });
+          break;
+        case 'self':
+          setLayout({ delimiterAlign: 'partner' });
+          break;
+        case 'partner':
+          toggleLabelDelimiter();
+          break;
+      }
+    } else {
+      // 奇数行: 無 → 中 → 無
+      switch (current) {
+        case 'none':
+          toggleLabelDelimiter();
+          setLayout({ delimiterAlign: 'center' });
+          break;
+        case 'center':
+          toggleLabelDelimiter();
+          break;
+      }
     }
-  }, [editingUseDelim, layout.delimiterAlign, setLayout, toggleLabelDelimiter]);
+  }, [editingUseDelim, effectiveAlign, setLayout, toggleLabelDelimiter, isEvenRows]);
 
   const getDelimiterDisplay = (state: 'center' | 'self' | 'partner' | 'none') => {
     const d = layout.delimiter || '～';
@@ -104,8 +120,8 @@ export function OverviewCanvas() {
       position: 'absolute' as const,
       left: `${left}px`,
       top: `${top}px`,
-      width: `${(cellW - 2) * zoom}px`,
-      height: `${(cellH - 2) * zoom}px`,
+      width: `${(cellW - 1) * zoom}px`,
+      height: `${(cellH - 1) * zoom}px`,
     };
   };
 
@@ -153,14 +169,14 @@ export function OverviewCanvas() {
     ctx.textAlign = "center";
     ctx.textBaseline = "bottom";
     for (let c = 0; c < grid.cols; c++) {
-      ctx.fillText(`${c + 1}`, c * cellW + (cellW - 2) / 2, -4);
+      ctx.fillText(`${c + 1}`, c * cellW + (cellW - 1) / 2, -4);
     }
 
     // 行番号（左側）
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     for (let r = 0; r < grid.rows; r++) {
-      ctx.fillText(`${r + 1}`, -4, r * cellH + (cellH - 2) / 2);
+      ctx.fillText(`${r + 1}`, -4, r * cellH + (cellH - 1) / 2);
     }
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
@@ -175,7 +191,7 @@ export function OverviewCanvas() {
         const isEditing = editingCell !== null && r === editingCell.row && c === editingCell.col;
         const labelUseDelim = label ? (label.useDelimiter ?? true) : true;
         const labelDelimIdx = labelUseDelim && layout.delimiter
-          ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+          ? getDelimiterRowIndex(layout.itemsPerLabel, label.delimiterAlign ?? layout.delimiterAlign)
           : -1;
         const hasData = label ? isLabelUsed(label, labelDelimIdx) : false;
 
@@ -186,7 +202,7 @@ export function OverviewCanvas() {
           else if (isSelected) ctx.fillStyle = "#dbeafe";
           else if (hasData) ctx.fillStyle = "#f0fdf4";
           else ctx.fillStyle = "#ffffff";
-          ctx.fillRect(x, y, cellW - 2, cellH - 2);
+          ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           if (isSelected) {
             ctx.strokeStyle = "#2563eb";
             ctx.lineWidth = 2;
@@ -197,42 +213,48 @@ export function OverviewCanvas() {
             ctx.strokeStyle = "#cbd5e1";
             ctx.lineWidth = 1;
           }
-          ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           // テキストも通常描画
           if (label) {
             const displayTexts = getLabelDisplayTexts(label, layout);
-            ctx.font = "9px sans-serif";
+            const maxTextW = cellW - 4;
+            const rowH = (cellH - 1) / displayTexts.length;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            const centerX = x + (cellW - 2) / 2;
-            const totalH = displayTexts.length * rowLineH;
-            const startY = y + (cellH - totalH) / 2 + rowLineH / 2;
+            const centerX = x + (cellW) / 2;
             for (let i = 0; i < displayTexts.length; i++) {
               const text = displayTexts[i];
               if (text.trim() === "") continue;
               const isDelim = i === labelDelimIdx;
               ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
-              const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
-              const lineY = startY + i * rowLineH;
-              ctx.fillText(displayText, centerX, lineY);
+              // フォントサイズを動的に調整（最大12px、行高&幅に収まるよう縮小）
+              let fontSize = Math.min(12, rowH * 0.85);
+              ctx.font = `${fontSize}px sans-serif`;
+              while (fontSize > 4 && ctx.measureText(text).width > maxTextW) {
+                fontSize -= 0.5;
+                ctx.font = `${fontSize}px sans-serif`;
+              }
+              const lineY = y + 0.5 + rowH * i + rowH / 2;
+              ctx.fillText(text, centerX, lineY);
             }
             ctx.textAlign = "start";
             ctx.textBaseline = "alphabetic";
           }
           // 上から半透明レイヤーを重ねる
           ctx.fillStyle = "rgba(226,232,240,0.75)";
-          ctx.fillRect(x, y, cellW - 2, cellH - 2);
+          ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           ctx.strokeStyle = "#cbd5e1";
           ctx.lineWidth = 1;
-          ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+          ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           continue;
         }
 
+        // 通常描画（編集モードではない or 編集中のセル自身）
         if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
         else if (isSelected) ctx.fillStyle = "#dbeafe";
         else if (hasData) ctx.fillStyle = "#f0fdf4";
         else ctx.fillStyle = "#ffffff";
-        ctx.fillRect(x, y, cellW - 2, cellH - 2);
+        ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
         if (isSelected) {
           ctx.strokeStyle = "#2563eb";
@@ -244,27 +266,32 @@ export function OverviewCanvas() {
           ctx.strokeStyle = "#cbd5e1";
           ctx.lineWidth = 1;
         }
-        ctx.strokeRect(x, y, cellW - 2, cellH - 2);
+        ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
         // 編集中セルの文字はオーバーレイに任せる
         if (isEditing) continue;
 
         if (label) {
           const displayTexts = getLabelDisplayTexts(label, layout);
-          ctx.font = "9px sans-serif";
+          const maxTextW = cellW - 4;
+          const rowH = (cellH - 1) / displayTexts.length;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
-          const centerX = x + (cellW - 2) / 2;
-          const totalH = displayTexts.length * rowLineH;
-          const startY = y + (cellH - totalH) / 2 + rowLineH / 2;
+          const centerX = x + (cellW) / 2;
           for (let i = 0; i < displayTexts.length; i++) {
             const text = displayTexts[i];
             if (text.trim() === "") continue;
             const isDelim = i === labelDelimIdx;
             ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
-            const displayText = text.length > 10 ? text.slice(0, 10) + "…" : text;
-            const lineY = startY + i * rowLineH;
-            ctx.fillText(displayText, centerX, lineY);
+            // フォントサイズを動的に調整（最大12px、行高&幅に収まるよう縮小）
+            let fontSize = Math.min(12, rowH * 0.85);
+            ctx.font = `${fontSize}px sans-serif`;
+            while (fontSize > 4 && ctx.measureText(text).width > maxTextW) {
+              fontSize -= 0.5;
+              ctx.font = `${fontSize}px sans-serif`;
+            }
+            const lineY = y + 0.5 + rowH * i + rowH / 2;
+            ctx.fillText(text, centerX, lineY);
           }
           ctx.textAlign = "start";
           ctx.textBaseline = "alphabetic";
@@ -282,7 +309,7 @@ export function OverviewCanvas() {
     }
 
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, cellHeaderH, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
+  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
 
   useEffect(() => {
     draw();
@@ -513,10 +540,10 @@ export function OverviewCanvas() {
           {presetTexts.map((p) => (
             <button
               key={p.id}
-              className={`shrink-0 text-xs px-2 py-0.5 rounded-full border leading-tight ${
+              className={`shrink-0 text-lg px-3 py-1.5 rounded-full border leading-tight ${
                 editingCell
-                  ? "border-brand-300 bg-brand-50 text-brand-700 hover:bg-brand-100"
-                  : "border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                  ? "border-brand-300 bg-brand-50 text-brand-800 font-medium hover:bg-brand-100"
+                  : "border-slate-300 bg-slate-100 text-slate-600 cursor-not-allowed"
               }`}
               onClick={() => {
                 if (!editingCell) return;

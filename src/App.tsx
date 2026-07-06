@@ -185,9 +185,10 @@ export default function App() {
   const handleDeleteHistory = async (entry: HistoryEntry) => {
     try {
       await invoke("delete_history", { filename: entry.filename });
+      setStatusMsg(`履歴を削除しました: ${entry.name}`);
       loadHistory();
-    } catch {
-      // ignore
+    } catch (e) {
+      setStatusMsg(`削除エラー: ${e}`);
     }
   };
 

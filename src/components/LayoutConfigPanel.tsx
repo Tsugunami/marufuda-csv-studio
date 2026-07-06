@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useStore } from "../lib/store";
 
 export function LayoutConfigPanel() {
@@ -10,6 +10,7 @@ export function LayoutConfigPanel() {
     addPreset,
     deletePreset,
     overwritePreset,
+    reorderPresets,
     resetPresets,
     sizePresets,
     applySizePreset,
@@ -29,6 +30,23 @@ export function LayoutConfigPanel() {
   } | null>(null);
   const [confirmDeletePreset, setConfirmDeletePreset] = useState<number | null>(null);
   const [confirmDeleteSizePreset, setConfirmDeleteSizePreset] = useState<number | null>(null);
+
+  // 現在のレイアウトにマッチするプリセットを検出
+  const currentPresetIndex = useMemo(() => {
+    for (let i = 0; i < presets.length; i++) {
+      const p = presets[i].layout;
+      if (
+        p.blockCols === layout.blockCols &&
+        p.blockRows === layout.blockRows &&
+        p.itemsPerLabel === layout.itemsPerLabel &&
+        p.labelSize.widthMm === layout.labelSize.widthMm &&
+        p.labelSize.heightMm === layout.labelSize.heightMm
+      ) {
+        return i;
+      }
+    }
+    return -1; // 未設定
+  }, [layout.blockCols, layout.blockRows, layout.itemsPerLabel, layout.labelSize.widthMm, layout.labelSize.heightMm, presets]);
 
   const handleSelectPreset = (value: string) => {
     if (value === "") return;
@@ -95,10 +113,14 @@ export function LayoutConfigPanel() {
         </label>
         <select
           className="w-full border border-slate-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          value=""
-          onChange={(e) => handleSelectPreset(e.target.value)}
+          value={currentPresetIndex >= 0 ? currentPresetIndex : ""}
+          onChange={(e) => {
+            const val = e.target.value;
+            if (val === "") return;
+            handleSelectPreset(val);
+          }}
         >
-          <option value="">-- プリセットを選択 --</option>
+          <option value="">-- 未設定 --</option>
           {presets.map((p, i) => (
             <option key={i} value={i}>{p.name}</option>
           ))}
@@ -108,6 +130,8 @@ export function LayoutConfigPanel() {
           {presets.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs px-2 py-1 rounded hover:bg-slate-50">
               <span className="flex-1 truncate text-slate-700">{p.name}</span>
+              <button className="text-slate-400 hover:text-brand-600 disabled:opacity-20" disabled={i === 0} onClick={() => reorderPresets(i, i - 1)} title="上へ">▲</button>
+              <button className="text-slate-400 hover:text-brand-600 disabled:opacity-20" disabled={i === presets.length - 1} onClick={() => reorderPresets(i, i + 1)} title="下へ">▼</button>
               <button className="text-blue-500 hover:text-blue-700" onClick={() => {
                 if (hasExistingData()) {
                   setConfirmApplyModal({ presetIndex: i });

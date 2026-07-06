@@ -38,7 +38,7 @@ export function LabelEditor() {
   const useDelim = label.useDelimiter ?? true;
   const hasDelimiter = !!layout.delimiter;
   const delimIdx = useDelim && hasDelimiter
-    ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+    ? getDelimiterRowIndex(layout.itemsPerLabel, label.delimiterAlign ?? layout.delimiterAlign)
     : -1;
   const used = isLabelUsed(label, delimIdx);
   const isEven = layout.itemsPerLabel % 2 === 0;
@@ -83,9 +83,14 @@ export function LabelEditor() {
               disabled={!isEven}
               onChange={(e) => setLayout({ delimiterAlign: e.target.value as "center" | "self" | "partner" })}
             >
-              <option value="center">中央</option>
-              <option value="self">自側</option>
-              <option value="partner">相手側</option>
+              {isEven ? (
+                <>
+                  <option value="self">自側</option>
+                  <option value="partner">相手側</option>
+                </>
+              ) : (
+                <option value="center">中央</option>
+              )}
             </select>
           </div>
         </div>

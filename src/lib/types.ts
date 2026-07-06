@@ -10,6 +10,8 @@ export interface Label {
   id: string;
   rows: LabelRow[];
   useDelimiter?: boolean; // ラベルごとの接続詞使用フラグ（未設定時はtrue扱い）
+  /** ラベル個別の接続詞寄せ（未設定時はレイアウト全体の設定を使用） */
+  delimiterAlign?: DelimiterAlign;
 }
 
 /** シート全体 = ブロック格子 */
@@ -52,6 +54,8 @@ export type ReverseDirection = "right" | "left" | "up" | "down";
 export interface Preset {
   name: string;
   layout: LayoutConfig;
+  /** ラベルごとの接続詞ON/OFF状態 [row][col] 省略時は全てtrue扱い */
+  labelDelimiters?: boolean[][];
 }
 
 /** サイズプリセット（ラベルサイズマージンサイズのみ） */

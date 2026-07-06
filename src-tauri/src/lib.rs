@@ -328,7 +328,11 @@ fn load_history_list() -> Result<Vec<serde_json::Value>, String> {
         let path = entry.path();
         if path.extension().map(|e| e == "json").unwrap_or(false) {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Ok(mut val) = serde_json::from_str::<serde_json::Value>(&content) {
+                    // ファイル名を JSON に含める（フロントエンドの削除処理で使用）
+                    if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                        val["filename"] = serde_json::Value::String(filename.to_string());
+                    }
                     entries.push(val);
                 }
             }

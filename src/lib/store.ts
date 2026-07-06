@@ -107,6 +107,7 @@ interface AppState {
   addPreset: (name: string) => void;
   deletePreset: (index: number) => void;
   overwritePreset: (index: number) => void;
+  reorderPresets: (from: number, to: number) => void;
   addPresetText: (texts: string[]) => void;
   deletePresetText: (id: string) => void;
   reorderPresetTexts: (from: number, to: number) => void;
@@ -200,6 +201,17 @@ export const useStore = create<AppState>((set, get) => ({
       preset.layout.blockRows,
       preset.layout.itemsPerLabel
     );
+    // ラベルごとの接続詞状態を復元（保存されていないプリセットは全ONのまま）
+    if (preset.labelDelimiters) {
+      for (let r = 0; r < newGrid.labels.length; r++) {
+        for (let c = 0; c < newGrid.labels[r].length; c++) {
+          const rowData = preset.labelDelimiters[r];
+          if (rowData && c < rowData.length) {
+            newGrid.labels[r][c].useDelimiter = rowData[c];
+          }
+        }
+      }
+    }
     const hist = pushHistory(get());
     set({
       ...hist,
@@ -272,14 +284,37 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleLabelDelimiter: () => {
-    const { grid, selectedRow, selectedCol } = get();
+    const state = get();
+    const { grid, selectedRow, selectedCol, selectedCells } = state;
+    // 複数選択があればその全セル、なければ現在の単一セル
+    const targetKeys =
+      selectedCells.size > 0
+        ? selectedCells
+        : new Set<string>([`${selectedRow},${selectedCol}`]);
+    if (targetKeys.size === 0) return;
+
+    // 最初のターゲットから新しいON/OFF状態を決定
+    const firstKey = targetKeys.values().next().value as string;
+    const [fr, fc] = firstKey.split(",").map(Number);
+    const firstLabel = grid.labels[fr]?.[fc];
+    if (!firstLabel) return;
+    const newState = !(firstLabel.useDelimiter ?? true);
+
+    // clearSelected と同じ deep clone パターン
     const newLabels = grid.labels.map((rowArr) =>
-      rowArr.map((l) => ({ ...l }))
+      rowArr.map((l) => ({
+        ...l,
+        rows: l.rows.map((r) => ({ ...r })),
+      }))
     );
-    const label = newLabels[selectedRow]?.[selectedCol];
-    if (label) {
-      label.useDelimiter = !(label.useDelimiter ?? true);
+
+    for (const key of targetKeys) {
+      const [r, c] = key.split(",").map(Number);
+      const targetLabel = newLabels[r]?.[c];
+      if (!targetLabel) continue;
+      targetLabel.useDelimiter = newState;
     }
+
     const hist = pushHistory(get());
     set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
@@ -290,17 +325,15 @@ export const useStore = create<AppState>((set, get) => ({
     if (!sourceLabel) return;
 
     const useDelim = sourceLabel.useDelimiter ?? true;
-    const delimIdx = useDelim && layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
-      : -1;
-    const used = sourceLabel.rows.some(
-      (row, i) => i !== delimIdx && row.text.trim() !== ""
-    );
-    const sourceTexts = sourceLabel.rows.map((r, i) =>
-      i === delimIdx && used ? layout.delimiter : r.text
-    );
-    const reversed = buildReversedLabel(sourceTexts, layout.delimiter);
-    if (!reversed) return;
+    const sourceAlign = sourceLabel.delimiterAlign ?? layout.delimiterAlign;
+    // デリミタ位置を計算（～はテキスト保存されていないため buildReversedLabel 非使用）
+    if (!useDelim || !layout.delimiter) return;
+    const delimIdx = getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign);
+
+    // 前ブロック rows[0..delimIdx-1]、後ブロック rows[delimIdx+1..n-1]
+    const n = layout.itemsPerLabel;
+    const beforeRows = sourceLabel.rows.slice(0, delimIdx).map((r) => ({ text: r.text }));
+    const afterRows = sourceLabel.rows.slice(delimIdx + 1).map((r) => ({ text: r.text }));
 
     let targetRow = selectedRow;
     let targetCol = selectedCol;
@@ -310,7 +343,6 @@ export const useStore = create<AppState>((set, get) => ({
       case "down": targetRow = selectedRow + 1; break;
       case "up": targetRow = selectedRow - 1; break;
     }
-
     if (targetRow < 0 || targetRow >= grid.rows || targetCol < 0 || targetCol >= grid.cols) return;
 
     const hist = pushHistory(get());
@@ -321,9 +353,26 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     );
     const targetLabel = newLabels[targetRow][targetCol];
-    for (let i = 0; i < targetLabel.rows.length; i++) {
-      targetLabel.rows[i].text = reversed[i] ?? "";
+    // デリミタ位置を反転
+    const newAlign = sourceAlign === "self" ? "partner" : sourceAlign === "partner" ? "self" : sourceAlign;
+    const newDelimIdx = getDelimiterRowIndex(n, newAlign);
+    // 新しい並び: [afterRows][delimiter(空)][beforeRows]
+    const newRows: { text: string }[] = [];
+    let ai = 0, bi = 0;
+    for (let i = 0; i < n; i++) {
+      if (i === newDelimIdx) {
+        newRows.push({ text: "" }); // ～は保存しない
+      } else if (i < newDelimIdx) {
+        newRows.push(afterRows[ai] ?? { text: "" });
+        ai++;
+      } else {
+        newRows.push(beforeRows[bi] ?? { text: "" });
+        bi++;
+      }
     }
+    targetLabel.rows = newRows;
+    targetLabel.delimiterAlign = newAlign;
+    targetLabel.useDelimiter = true;
     set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
@@ -333,8 +382,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (!sourceLabel) return;
 
     const useDelim = sourceLabel.useDelimiter ?? true;
+    const sourceAlign = sourceLabel.delimiterAlign ?? layout.delimiterAlign;
     const delimIdx = useDelim && layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      ? getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign)
       : -1;
     const used = sourceLabel.rows.some(
       (row, i) => i !== delimIdx && row.text.trim() !== ""
@@ -372,20 +422,19 @@ export const useStore = create<AppState>((set, get) => ({
     );
     const targetLabel = newLabels[targetRow][targetCol];
     const useDelim = sourceLabel.useDelimiter ?? true;
+    const sourceAlign = sourceLabel.delimiterAlign ?? layout.delimiterAlign;
     const delimIdx = useDelim && layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      ? getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign)
       : -1;
     const used = sourceLabel.rows.some(
       (row, i) => i !== delimIdx && row.text.trim() !== ""
     );
     for (let i = 0; i < targetLabel.rows.length; i++) {
-      if (i === delimIdx && used) {
-        targetLabel.rows[i].text = layout.delimiter;
-      } else {
-        targetLabel.rows[i].text = sourceLabel.rows[i]?.text ?? "";
-      }
+      // デリミタ文字はテキスト保存しない（表示時に自動補完）
+      targetLabel.rows[i].text = (i === delimIdx && used) ? "" : (sourceLabel.rows[i]?.text ?? "");
     }
     targetLabel.useDelimiter = sourceLabel.useDelimiter;
+    targetLabel.delimiterAlign = sourceLabel.delimiterAlign;
     set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
@@ -395,8 +444,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (!sourceLabel) return;
 
     const useDelim = sourceLabel.useDelimiter ?? true;
+    const sourceAlign = sourceLabel.delimiterAlign ?? layout.delimiterAlign;
     const delimIdx = useDelim && layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
+      ? getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign)
       : -1;
     const used = sourceLabel.rows.some(
       (row, i) => i !== delimIdx && row.text.trim() !== ""
@@ -419,13 +469,14 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     );
 
-    // 複数選択されたセルすべてに貼り付け
+    // 複数選択されたセルすべてに貼り付け（デリミタ文字は保存しない）
     for (const key of selectedCells) {
       const [r, c] = key.split(",").map(Number);
       const targetLabel = newLabels[r]?.[c];
       if (!targetLabel) continue;
       for (let i = 0; i < targetLabel.rows.length; i++) {
-        targetLabel.rows[i].text = clipboard[i] ?? "";
+        const text = clipboard[i] ?? "";
+        targetLabel.rows[i].text = isDelimiterText(text) ? "" : text;
       }
     }
         // 貼り付け後はクリップボードをクリアしてコピーボタンに戻す
@@ -467,8 +518,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   addPreset: (name) => {
-    const { layout, presets } = get();
-    const newPreset: Preset = { name, layout: { ...layout } };
+    const { layout, presets, grid } = get();
+    // ラベルごとの接続詞状態を保存
+    const labelDelimiters = grid.labels.map((rowArr) =>
+      rowArr.map((l) => l.useDelimiter ?? true)
+    );
+    const newPreset: Preset = { name, layout: { ...layout }, labelDelimiters };
     set({ presets: [...presets, newPreset] });
   },
 
@@ -478,11 +533,22 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   overwritePreset: (index) => {
-    const { layout, presets } = get();
+    const { layout, presets, grid } = get();
     const preset = presets[index];
     if (!preset) return;
+    const labelDelimiters = grid.labels.map((rowArr) =>
+      rowArr.map((l) => l.useDelimiter ?? true)
+    );
     const updated = [...presets];
-    updated[index] = { ...preset, layout: { ...layout } };
+    updated[index] = { ...preset, layout: { ...layout }, labelDelimiters };
+    set({ presets: updated });
+  },
+
+  reorderPresets: (from, to) => {
+    const { presets } = get();
+    const updated = [...presets];
+    const [moved] = updated.splice(from, 1);
+    updated.splice(to, 0, moved);
     set({ presets: updated });
   },
 
@@ -691,7 +757,11 @@ export const useStore = create<AppState>((set, get) => ({
       version: 2,
       grid: cloneGrid(grid),
       layout: { ...layout },
-      presets: presets.map((p) => ({ name: p.name, layout: { ...p.layout } })),
+      presets: presets.map((p) => ({
+        name: p.name,
+        layout: { ...p.layout },
+        labelDelimiters: p.labelDelimiters,
+      })),
       sizePresets: sizePresets.map((p) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
@@ -706,7 +776,11 @@ export const useStore = create<AppState>((set, get) => ({
     set({
       grid: newGrid,
       layout: { ...data.layout },
-      presets: data.presets.map((p) => ({ name: p.name, layout: { ...p.layout } })),
+      presets: data.presets.map((p: any) => ({
+        name: p.name,
+        layout: { ...p.layout },
+        labelDelimiters: p.labelDelimiters,
+      })),
       sizePresets: data.sizePresets.map((p) => ({
         name: p.name,
         labelSize: { ...p.labelSize },

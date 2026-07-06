@@ -41,22 +41,20 @@ export function buildReversedLabel(
   }
   if (!hasData) return null;
 
-  // デリミタは元の位置に固定
-  output[delimiterIndex] = source[delimiterIndex];
-
-  // 前ブロック: indices 0..delimiterIndex-1
-  // 後ブロック: indices delimiterIndex+1..n-1
+  // デリミタより前のブロックと後のブロックを切り出す
   const beforeBlock = source.slice(0, delimiterIndex);
   const afterBlock = source.slice(delimiterIndex + 1);
 
-  // 前ブロック領域に後ブロックの内容を配置
-  for (let i = 0; i < beforeBlock.length; i++) {
-    output[i] = afterBlock[i] ?? "";
-  }
+  // 新しい並び: [afterBlock, delimiter, beforeBlock]
+  // デリミタの新しい位置 = afterBlock の長さ
+  const newDelimiterPos = afterBlock.length;
 
-  // 後ブロック領域に前ブロックの内容を配置
   for (let i = 0; i < afterBlock.length; i++) {
-    output[delimiterIndex + 1 + i] = beforeBlock[i] ?? "";
+    output[i] = afterBlock[i];
+  }
+  output[newDelimiterPos] = source[delimiterIndex];
+  for (let i = 0; i < beforeBlock.length; i++) {
+    output[newDelimiterPos + 1 + i] = beforeBlock[i];
   }
 
   return output;
