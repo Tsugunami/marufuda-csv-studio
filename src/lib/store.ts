@@ -950,12 +950,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadProjectData: (data) => {
     const newGrid = cloneGrid(data.grid);
-    const loadedPresetTexts = data.presetTexts
-      ? data.presetTexts.map((p: any) => normalizePresetTextItem({ id: p.id, text: [...p.text], category: p.category }))
-      : [...DEFAULT_PRESET_TEXTS];
-    const loadedCategories = data.presetTextCategories
-      ? normalizePresetTextCategories(data.presetTextCategories)
-      : uniquePresetTextCategories(loadedPresetTexts);
+    // プリセットラベル(presetTexts)は履歴/CSV読込で上書きしない
     set({
       grid: newGrid,
       layout: { ...data.layout },
@@ -968,9 +963,6 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
-      presetTexts: loadedPresetTexts,
-      presetTextCategories: loadedCategories,
-      selectedPresetTextCategory: loadedCategories[0],
       exportConfig: { ...data.exportConfig },
       selectedRow: 0,
       selectedCol: 0,
