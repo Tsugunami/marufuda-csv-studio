@@ -68,4 +68,5 @@ export interface SizePreset {
 export interface PresetTextItem {
   id: string;
   text: string[];
+  category?: string;
 }

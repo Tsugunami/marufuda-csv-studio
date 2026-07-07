@@ -19,10 +19,6 @@ export function LabelEditor() {
     pasteFromClipboard,
     clearSelected,
     undo,
-    presetTexts,
-    addPresetText,
-    deletePresetText,
-    applyPresetTextToSelected,
   } = useStore();
 
   const label = grid.labels[selectedRow]?.[selectedCol];
@@ -144,61 +140,6 @@ export function LabelEditor() {
             </div>
           );
         })}
-      </div>
-
-      {/* プリセットラベル */}
-      <div className="px-4 py-2 border-t border-slate-200 bg-slate-50">
-        <p className="text-xs font-bold text-slate-700 mb-1">
-          プリセットラベル
-        </p>
-        <div className="flex gap-1 mb-2">
-          <input
-            type="text"
-            className="flex-1 border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
-            placeholder="追加するラベルテキスト（カンマ区切りで複数行）"
-            id="preset-text-input"
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const el = document.getElementById("preset-text-input") as HTMLInputElement;
-                if (el && el.value.trim()) {
-                  const texts = el.value.split(",").map((s) => s.trim());
-                  addPresetText(texts);
-                  el.value = "";
-                }
-              }
-            }}
-          />
-          <button
-            className="px-2 py-1 text-xs rounded bg-brand-600 text-white hover:bg-brand-700 shrink-0"
-            onClick={() => {
-              const el = document.getElementById("preset-text-input") as HTMLInputElement;
-              if (el && el.value.trim()) {
-                const texts = el.value.split(",").map((s) => s.trim());
-                addPresetText(texts);
-                el.value = "";
-              }
-            }}
-          >追加</button>
-        </div>
-        {presetTexts.length > 0 && (
-          <div className="space-y-1 max-h-28 overflow-auto">
-            {presetTexts.map((p) => (
-              <div key={p.id} className="flex items-center gap-1 text-xs px-1 py-0.5 rounded hover:bg-slate-100">
-                <span className="flex-1 truncate text-slate-600">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
-                <button
-                  className="text-blue-500 hover:text-blue-700 shrink-0"
-                  onClick={() => applyPresetTextToSelected(p.text)}
-                  title="選択セルに適用"
-                >適用</button>
-                <button
-                  className="text-red-500 hover:text-red-700 shrink-0"
-                  onClick={() => deletePresetText(p.id)}
-                  title="削除"
-                >✕</button>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* 反転コピー（十字型） */}

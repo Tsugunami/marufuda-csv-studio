@@ -1,4 +1,4 @@
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 
 const DRAG_THRESHOLD = 5;
 import { useStore } from "../lib/store";
@@ -27,20 +27,67 @@ export function OverviewCanvas() {
     clearSelected, undo, clipboard, clipboardMode,
     copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
     copyTo, reverseTo, setLayout, updateLabelRow, toggleLabelDelimiter,
-    presetTexts, applyPresetTextToSelected, reorderPresetTexts,
+    presetTexts, presetTextCategories, selectedPresetTextCategory,
+    setPresetTextCategory, renamePresetTextCategory,
+    addPresetText, deletePresetText, addPresetTextCategory, deletePresetTextCategory,
+    movePresetText, reorderPresetTextCategories, reorderPresetTexts, applyPresetTextToSelected,
   } = useStore();
   const [zoom, setZoom] = useState(1);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [editingLine, setEditingLine] = useState<number>(-1);
   const [reorderMode, setReorderMode] = useState(false);
+  const [newPresetText, setNewPresetText] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingCategoryDraft, setEditingCategoryDraft] = useState("");
+  const [draggedPresetTextId, setDraggedPresetTextId] = useState<string | null>(null);
+  const [dragOverCategory, setDragOverCategory] = useState<string | null>(null);
+  const [draggedCategory, setDraggedCategory] = useState<string | null>(null);
+  const [dragOverCategoryIndex, setDragOverCategoryIndex] = useState<number | null>(null);
+  const [dragOverTextIndex, setDragOverTextIndex] = useState<number | null>(null);
+
+  // HTML5 D&D の dataTransfer.getData() は WebView2 で空を返すため ref で管理
+  const dragDataRef = useRef<{ type: 'text'; id: string } | { type: 'category'; id: string } | null>(null);
 
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const dragMoved = useRef(false);
   const mouseDownPos = useRef({ x: 0, y: 0 });
 
-    const rowLineH = 11;
+  const normalizeCategory = (category?: string) => category?.trim() || "未分類";
+
+  const categories = useMemo(() => {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    const push = (category: string) => {
+      const normalized = normalizeCategory(category);
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      result.push(normalized);
+    };
+    presetTextCategories.forEach((category) => push(category));
+    presetTexts.forEach((item) => push(item.category ?? "未分類"));
+    if (!seen.has(normalizeCategory(selectedPresetTextCategory))) {
+      result.push(normalizeCategory(selectedPresetTextCategory));
+    }
+    return result.length > 0 ? result : ["基本"];
+  }, [presetTexts, presetTextCategories, selectedPresetTextCategory]);
+
+  const activePresetTextCategory = categories.includes(selectedPresetTextCategory)
+    ? selectedPresetTextCategory
+    : categories[0];
+
+  const visiblePresetTexts = useMemo(() => {
+    return presetTexts.filter((item) => normalizeCategory(item.category) === activePresetTextCategory);
+  }, [presetTexts, activePresetTextCategory]);
+
+  useEffect(() => {
+    if (selectedPresetTextCategory !== activePresetTextCategory) {
+      setPresetTextCategory(activePresetTextCategory);
+    }
+  }, [activePresetTextCategory, selectedPresetTextCategory, setPresetTextCategory]);
+
+  const rowLineH = 11;
   const minCellH = layout.itemsPerLabel * rowLineH;
   const aspect = layout.labelSize.heightMm / layout.labelSize.widthMm;
 
@@ -454,11 +501,17 @@ export function OverviewCanvas() {
       } else if ((e.ctrlKey || e.metaKey) && e.key === "a") {
         e.preventDefault();
         selectAll();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+        e.preventDefault();
+        copyToClipboard();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+        e.preventDefault();
+        pasteFromClipboard();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [clearSelected, undo, selectAll]);
+  }, [clearSelected, undo, selectAll, copyToClipboard, pasteFromClipboard]);
 
   useEffect(() => {
     setZoom(1);
@@ -505,9 +558,353 @@ export function OverviewCanvas() {
 
   const overlayStyle = getOverlayStyle();
 
+  const handleAddPresetText = useCallback(() => {
+    const value = newPresetText.trim();
+    if (!value) return;
+    const texts = value.split(",").map((s) => s.trim());
+    addPresetText(texts);
+    setNewPresetText("");
+  }, [addPresetText, newPresetText]);
+
+  const handleCategoryRenameCommit = useCallback(() => {
+    if (!editingCategory) return;
+    const nextName = normalizeCategory(editingCategoryDraft);
+    if (nextName && nextName !== editingCategory) {
+      renamePresetTextCategory(editingCategory, nextName);
+      if (activePresetTextCategory === editingCategory) {
+        setPresetTextCategory(nextName);
+      }
+    }
+    setEditingCategory(null);
+  }, [activePresetTextCategory, editingCategory, editingCategoryDraft, renamePresetTextCategory, setPresetTextCategory]);
+
+  const handleCategoryDrop = useCallback((category: string) => {
+    const data = dragDataRef.current;
+    if (!data || data.type !== 'text') return;
+    movePresetText(data.id, category);
+    setPresetTextCategory(category);
+    dragDataRef.current = null;
+    setDraggedPresetTextId(null);
+    setDragOverCategory(null);
+  }, [movePresetText, setPresetTextCategory]);
+
+  const handleCategoryReorderDrop = useCallback((targetIndex: number) => {
+    const data = dragDataRef.current;
+    if (!data || data.type !== 'category') return;
+    const fromIndex = categories.indexOf(data.id);
+    if (fromIndex < 0 || fromIndex === targetIndex) {
+      dragDataRef.current = null;
+      setDraggedCategory(null);
+      setDragOverCategoryIndex(null);
+      return;
+    }
+    reorderPresetTextCategories(fromIndex, targetIndex);
+    dragDataRef.current = null;
+    setDraggedCategory(null);
+    setDragOverCategoryIndex(null);
+  }, [categories, reorderPresetTextCategories]);
+
+  const handleCategoryDelete = useCallback((category: string) => {
+    const normalized = normalizeCategory(category);
+    const confirmed = window.confirm(
+      `カテゴリ「${normalized}」を削除します。\nこのカテゴリ内のラベルもすべて削除されます。\nよろしいですか？`
+    );
+    if (!confirmed) return;
+    deletePresetTextCategory(normalized);
+    if (activePresetTextCategory === normalized) {
+      const nextCategory = categories.find((item) => item !== normalized) ?? "基本";
+      setPresetTextCategory(nextCategory);
+    }
+  }, [activePresetTextCategory, categories, deletePresetTextCategory, setPresetTextCategory]);
+
   return (
     <div className="flex flex-col h-full bg-slate-50 rounded-lg border border-slate-200">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white rounded-t-lg">
+      {/* プリセットラベル郡 */}
+      <div className="border-b border-slate-200 bg-white rounded-t-lg">
+        <div className="flex items-center gap-2 px-3 py-2">
+          <span className="text-[10px] text-slate-400 shrink-0">📋</span>
+          <button
+            className={`shrink-0 rounded border px-2 py-1 text-[10px] ${reorderMode ? "border-amber-400 bg-amber-50 text-amber-700" : "border-slate-300 text-slate-500 hover:bg-slate-100"}`}
+            onClick={() => {
+              setEditingCategory(null);
+              setReorderMode((v) => !v);
+            }}
+            title="並び替えモード"
+          >
+            ⇅
+          </button>
+          <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap flex-1">
+            {categories.map((category, categoryIndex) => {
+              const isActive = category === activePresetTextCategory;
+              const isDraggingOver = dragOverCategoryIndex === categoryIndex;
+              const isEditing = reorderMode && editingCategory === category;
+              if (isEditing) {
+                return (
+                  <input
+                    key={category}
+                    autoFocus
+                    value={editingCategoryDraft}
+                    onChange={(e) => setEditingCategoryDraft(e.target.value)}
+                    onBlur={handleCategoryRenameCommit}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleCategoryRenameCommit();
+                      if (e.key === "Escape") setEditingCategory(null);
+                    }}
+                    className="shrink-0 min-w-24 rounded-full border border-brand-400 bg-brand-50 px-3 py-1 text-xs text-brand-800 outline-none"
+                  />
+                );
+              }
+
+              return (
+                <div
+                  key={category}
+                  draggable={reorderMode}
+                  className={`shrink-0 inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition ${
+                    isActive
+                      ? "border-brand-400 bg-brand-50 text-brand-800 font-semibold"
+                      : isDraggingOver
+                      ? "border-brand-300 bg-brand-100 text-brand-800"
+                      : "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  } ${reorderMode ? "cursor-grab active:cursor-grabbing" : ""}`}
+                  onClick={() => !reorderMode && setPresetTextCategory(category)}
+                  onDoubleClick={() => {
+                    if (!reorderMode) return;
+                    setEditingCategory(category);
+                    setEditingCategoryDraft(category);
+                  }}
+                  onDragStart={(e) => {
+                    if (!reorderMode) return;
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", category);
+                    dragDataRef.current = { type: 'category', id: category };
+                    setDraggedCategory(category);
+                  }}
+                  onDragEnd={() => {
+                    dragDataRef.current = null;
+                    setDraggedCategory(null);
+                    setDragOverCategoryIndex(null);
+                  }}
+                  onDragOver={(e) => {
+                    if (!reorderMode) return;
+                    const data = dragDataRef.current;
+                    if (!data) return;
+                    if (data.type === 'category' && data.id === category) return;
+                    e.preventDefault();
+                    setDragOverCategoryIndex(categoryIndex);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverCategoryIndex === categoryIndex) setDragOverCategoryIndex(null);
+                  }}
+                  onDrop={(e) => {
+                    if (!reorderMode) return;
+                    e.preventDefault();
+                    const data = dragDataRef.current;
+                    if (!data) return;
+                    if (data.type === 'text') {
+                      handleCategoryDrop(category);
+                    } else if (data.type === 'category') {
+                      handleCategoryReorderDrop(categoryIndex);
+                    }
+                  }}
+                  title={reorderMode ? "ドラッグで並び替え / ダブルクリックで改名" : "カテゴリを切り替え"}
+                >
+                  {reorderMode && (
+                    <span className="cursor-grab text-slate-400 hover:text-brand-600">☰</span>
+                  )}
+                  <span>{category}</span>
+                  {reorderMode && (
+                    <button
+                      type="button"
+                      className="rounded-full px-1 py-0 text-red-500 hover:bg-red-50 hover:text-red-700"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCategoryDelete(category);
+                      }}
+                      title="カテゴリとそのラベルを削除"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {reorderMode && (
+              <button
+                type="button"
+                className="shrink-0 rounded-full border border-dashed border-brand-300 bg-brand-50 px-3 py-1 text-xs text-brand-700 hover:bg-brand-100"
+                onClick={addPresetTextCategory}
+                title="新しいカテゴリを追加"
+              >
+                ＋
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-1 shrink-0">
+            <input
+              type="text"
+              value={newPresetText}
+              onChange={(e) => setNewPresetText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  handleAddPresetText();
+                }
+              }}
+              placeholder={`${activePresetTextCategory} に追加`}
+              className="w-32 bg-transparent text-xs outline-none placeholder:text-slate-400"
+            />
+            <button
+              className="rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700"
+              onClick={handleAddPresetText}
+            >
+              追加
+            </button>
+          </div>
+        </div>
+        {reorderMode && (
+          <div className="px-3 pb-2">
+            <div className="flex items-center justify-between pb-2 text-xs text-amber-700">
+              <span className="font-semibold">並び替え中</span>
+              <span>タブをドラッグで並び替え / ラベルをドラッグでカテゴリ移動</span>
+            </div>
+            <div className="mb-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              タブの削除は、そのカテゴリに属するラベルも一緒に削除されます。
+            </div>
+          </div>
+        )}
+        <div className="px-3 py-2 border-t border-slate-100">
+          {reorderMode ? (
+            <div className="flex items-start gap-1 flex-wrap pb-1">
+              {visiblePresetTexts.length === 0 ? (
+                <span className="text-xs text-slate-400 shrink-0">このカテゴリにはまだラベルがありません</span>
+              ) : (
+                visiblePresetTexts.map((p, index) => {
+                  const labelText = p.text.filter((t) => t.trim()).join("／") || "(空)";
+                  const isDragOverLeft = dragOverTextIndex === index;
+                  const isDragOverRight = dragOverTextIndex === index + 1;
+                  return (
+                    <div key={p.id} className="inline-flex items-center relative">
+                      {/* ドロップ位置インジケータ（左側） */}
+                      {isDragOverLeft && (
+                        <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-brand-500 rounded-full z-10" />
+                      )}
+                      <div
+                        draggable
+                        className={`group inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border px-2 py-1 text-sm leading-tight text-slate-700 cursor-grab active:cursor-grabbing ${
+                          isDragOverLeft || isDragOverRight
+                            ? "border-brand-400 bg-brand-50 shadow-sm ring-1 ring-brand-300"
+                            : "border-slate-300 bg-slate-100 hover:bg-slate-200"
+                        }`}
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = "move";
+                          e.dataTransfer.setData("text/plain", p.id);
+                          dragDataRef.current = { type: 'text', id: p.id };
+                          setDraggedPresetTextId(p.id);
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.clientX - rect.left;
+                          const idx = x < rect.width / 2 ? index : index + 1;
+                          setDragOverTextIndex(idx);
+                        }}
+                        onDragLeave={() => {
+                          setDragOverTextIndex(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const data = dragDataRef.current;
+                          if (!data || data.type !== 'text') return;
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const x = e.clientX - rect.left;
+                          const targetIdx = x < rect.width / 2 ? index : index + 1;
+                          // 同じカテゴリ内での並び替え: グローバルインデックスを計算
+                          const fromGlobal = presetTexts.findIndex((pt) => pt.id === data.id);
+                          if (fromGlobal < 0) return;
+                          const currentCatItems = presetTexts.filter((pt) => normalizeCategory(pt.category) === activePresetTextCategory);
+                          const beforeCount = presetTexts.filter((pt) => normalizeCategory(pt.category) !== activePresetTextCategory || presetTexts.indexOf(pt) < presetTexts.indexOf(currentCatItems[0])).length;
+                          const toGlobal = beforeCount + targetIdx;
+                          if (fromGlobal === toGlobal || fromGlobal + 1 === toGlobal) {
+                            // 動かなくてもエラーにしない
+                            dragDataRef.current = null;
+                            setDraggedPresetTextId(null);
+                            setDragOverTextIndex(null);
+                            return;
+                          }
+                          reorderPresetTexts(fromGlobal, toGlobal > fromGlobal ? toGlobal - 1 : toGlobal);
+                          dragDataRef.current = null;
+                          setDraggedPresetTextId(null);
+                          setDragOverTextIndex(null);
+                        }}
+                        onDragEnd={() => {
+                          dragDataRef.current = null;
+                          setDraggedPresetTextId(null);
+                          setDragOverCategory(null);
+                          setDragOverTextIndex(null);
+                        }}
+                        title="ドラッグして並び替え / カテゴリタブへドロップ"
+                      >
+                        <span className="text-slate-400 group-hover:text-brand-600">☰</span>
+                        <span>{labelText}</span>
+                        <button
+                          type="button"
+                          className="rounded-full px-1 py-0 text-xs text-red-500 hover:bg-red-50 hover:text-red-700"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePresetText(p.id);
+                          }}
+                          title="削除"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          ) : (
+            <div className="flex items-start gap-1 flex-wrap pb-1">
+              {visiblePresetTexts.length === 0 ? (
+                <span className="text-xs text-slate-400 shrink-0">このカテゴリにはまだラベルがありません</span>
+              ) : (
+                visiblePresetTexts.map((p) => {
+                  const labelText = p.text.filter((t) => t.trim()).join("／") || "(空)";
+                  return (
+                    <button
+                      key={p.id}
+                      className={`max-w-full whitespace-normal break-words rounded-full border px-3 py-1 text-sm leading-tight ${
+                        editingCell
+                          ? "border-brand-300 bg-brand-50 text-brand-800 font-medium hover:bg-brand-100"
+                          : "border-slate-300 bg-slate-100 text-slate-600"
+                      }`}
+                      onClick={() => {
+                        if (!editingCell) return;
+                        const rowIdx = selectionRef.current.row >= 0 ? selectionRef.current.row : (editingLine >= 0 ? editingLine : 0);
+                        const start = selectionRef.current.row === rowIdx ? selectionRef.current.start : undefined;
+                        const end = selectionRef.current.row === rowIdx ? selectionRef.current.end : undefined;
+                        applyPresetTextToSelected(p.text, rowIdx, start, end);
+                        const inp = inputRefs.current[rowIdx];
+                        if (inp) {
+                          inp.focus();
+                          const insertLen = (p.text[0] ?? "").length;
+                          const pos = (start ?? 0) + insertLen;
+                          inp.setSelectionRange(pos, pos);
+                        }
+                      }}
+                      title={editingCell ? "クリックでカーソル位置に貼付" : "編集モードでのみ使用可能"}
+                    >
+                      {labelText}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 全体ビューヘッダ */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-200 bg-white">
         <span className="text-xs font-medium text-slate-600">全体ビュー</span>
         <span className="text-xs text-slate-400">
           ({layout.labelSize.widthMm}×{layout.labelSize.heightMm}mm)
@@ -527,81 +924,6 @@ export function OverviewCanvas() {
             onClick={clearSelected} title="選択セルをクリア (Del)">🗑 クリア</button>
         </div>
       </div>
-
-      {/* 定型文プリセットバー */}
-      {!reorderMode && presetTexts.length > 0 && (
-        <div className="flex items-center gap-1 px-3 py-1.5 border-b border-slate-200 bg-white flex-wrap">
-          <span className="text-[10px] text-slate-400 shrink-0 mr-1">📋</span>
-          <button
-            className="shrink-0 text-[9px] px-1.5 py-0.5 rounded border border-slate-300 text-slate-500 hover:bg-slate-100"
-            onClick={() => setReorderMode(true)}
-            title="並び替え"
-          >⇅</button>
-          {presetTexts.map((p) => (
-            <button
-              key={p.id}
-              className={`shrink-0 text-lg px-3 py-1.5 rounded-full border leading-tight ${
-                editingCell
-                  ? "border-brand-300 bg-brand-50 text-brand-800 font-medium hover:bg-brand-100"
-                  : "border-slate-300 bg-slate-100 text-slate-600 cursor-not-allowed"
-              }`}
-              onClick={() => {
-                if (!editingCell) return;
-                const rowIdx = selectionRef.current.row >= 0 ? selectionRef.current.row : (editingLine >= 0 ? editingLine : 0);
-                const start = selectionRef.current.row === rowIdx ? selectionRef.current.start : undefined;
-                const end = selectionRef.current.row === rowIdx ? selectionRef.current.end : undefined;
-                applyPresetTextToSelected(p.text, rowIdx, start, end);
-                // フォーカスを維持（input にフォーカスを戻す）
-                const inp = inputRefs.current[rowIdx];
-                if (inp) {
-                  inp.focus();
-                  const insertLen = (p.text[0] ?? "").length;
-                  const pos = (start ?? 0) + insertLen;
-                  inp.setSelectionRange(pos, pos);
-                }
-              }}
-              title={editingCell ? "クリックでカーソル位置に貼付" : "編集モードでのみ使用可能"}
-            >{p.text.filter(t => t.trim()).join("／") || "(空)"}</button>
-          ))}
-        </div>
-      )}
-
-      {/* 並び替えモード */}
-      {reorderMode && (
-        <div className="px-3 py-2 border-b border-slate-200 bg-amber-50">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-amber-800">並び替え</span>
-            <div className="flex gap-1">
-              <button
-                className="px-2 py-0.5 text-xs rounded bg-green-600 text-white hover:bg-green-700"
-                onClick={() => setReorderMode(false)}
-              >保存</button>
-              <button
-                className="px-2 py-0.5 text-xs rounded bg-slate-300 text-slate-700 hover:bg-slate-400"
-                onClick={() => setReorderMode(false)}
-              >キャンセル</button>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-1 items-center">
-            {presetTexts.map((p, i) => (
-              <div key={p.id} className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-md px-1.5 py-1">
-                <span className="text-[10px] text-slate-500 w-3 text-center">{i + 1}</span>
-                <span className="text-xs text-slate-600 max-w-[100px] truncate">{p.text.filter(t => t.trim()).join("／") || "(空)"}</span>
-                <button
-                  className="text-[10px] text-slate-400 hover:text-brand-600 disabled:opacity-20 px-0.5"
-                  disabled={i === 0}
-                  onClick={() => reorderPresetTexts(i, i - 1)}
-                >▲</button>
-                <button
-                  className="text-[10px] text-slate-400 hover:text-brand-600 disabled:opacity-20 px-0.5"
-                  disabled={i === presetTexts.length - 1}
-                  onClick={() => reorderPresetTexts(i, i + 1)}
-                >▼</button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div ref={containerRef} className="flex-1 overflow-auto p-2 cursor-grab active:cursor-grabbing select-none"
         style={{ position: "relative" }}

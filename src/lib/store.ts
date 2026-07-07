@@ -16,6 +16,9 @@ import { DEFAULT_PRESETS } from "./presets";
 import { DEFAULT_SIZE_PRESETS } from "./size-presets";
 import { DEFAULT_PRESET_TEXTS } from "./preset-texts";
 
+const DEFAULT_PRESET_TEXT_CATEGORY = "基本";
+const FALLBACK_PRESET_TEXT_CATEGORY = "未分類";
+
 let labelIdCounter = 0;
 function nextId(): string {
   labelIdCounter++;
@@ -58,6 +61,94 @@ function cloneGrid(grid: SheetGrid): SheetGrid {
   };
 }
 
+function normalizePresetTextCategory(category?: string): string {
+  const normalized = category?.trim();
+  return normalized ? normalized : FALLBACK_PRESET_TEXT_CATEGORY;
+}
+
+function normalizePresetTextItem(item: PresetTextItem): PresetTextItem {
+  return {
+    id: item.id,
+    text: [...item.text],
+    category: normalizePresetTextCategory(item.category),
+  };
+}
+
+function uniquePresetTextCategories(items: PresetTextItem[], selectedCategory?: string): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const pushCategory = (category: string | undefined) => {
+    const normalized = normalizePresetTextCategory(category);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    result.push(normalized);
+  };
+  if (selectedCategory) pushCategory(selectedCategory);
+  for (const item of items) {
+    pushCategory(item.category);
+  }
+  if (result.length === 0) result.push(DEFAULT_PRESET_TEXT_CATEGORY);
+  return result;
+}
+
+function normalizePresetTextCategories(categories: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const category of categories) {
+    const normalized = normalizePresetTextCategory(category);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  if (result.length === 0) result.push(DEFAULT_PRESET_TEXT_CATEGORY);
+  return result;
+}
+
+function movePresetTextItem(
+  items: PresetTextItem[],
+  id: string,
+  targetCategory: string,
+  targetIndex?: number
+): PresetTextItem[] {
+  const normalizedTargetCategory = normalizePresetTextCategory(targetCategory);
+  const sourceIndex = items.findIndex((item) => item.id === id);
+  if (sourceIndex < 0) return items;
+
+  const nextItems = items.map((item) => normalizePresetTextItem(item));
+  const [moved] = nextItems.splice(sourceIndex, 1);
+  moved.category = normalizedTargetCategory;
+
+  const categoryItems = nextItems.filter((item) => normalizePresetTextCategory(item.category) === normalizedTargetCategory);
+  const insertIndex = targetIndex === undefined
+    ? categoryItems.length
+    : Math.max(0, Math.min(targetIndex, categoryItems.length));
+
+  if (insertIndex >= categoryItems.length) {
+    const lastIndex = nextItems.reduce((last, item, index) => {
+      return normalizePresetTextCategory(item.category) === normalizedTargetCategory ? index : last;
+    }, -1);
+    if (lastIndex === -1) {
+      nextItems.push(moved);
+      return nextItems;
+    }
+    nextItems.splice(lastIndex + 1, 0, moved);
+    return nextItems;
+  }
+
+  let seen = 0;
+  for (let i = 0; i < nextItems.length; i++) {
+    if (normalizePresetTextCategory(nextItems[i].category) !== normalizedTargetCategory) continue;
+    if (seen === insertIndex) {
+      nextItems.splice(i, 0, moved);
+      return nextItems;
+    }
+    seen++;
+  }
+
+  nextItems.push(moved);
+  return nextItems;
+}
+
 /** 選択セルのキー */
 function cellKey(r: number, c: number): string {
   return `${r},${c}`;
@@ -71,6 +162,7 @@ export interface ProjectData {
   presets: Preset[];
   sizePresets: SizePreset[];
   presetTexts: PresetTextItem[];
+  presetTextCategories?: string[];
   exportConfig: ExportConfig;
 }
 
@@ -84,6 +176,8 @@ interface AppState {
   presets: typeof DEFAULT_PRESETS;
   sizePresets: SizePreset[];
   presetTexts: PresetTextItem[];
+  presetTextCategories: string[];
+  selectedPresetTextCategory: string;
   clipboard: string[] | null;
   clipboardMode: "copy" | "reverse" | null; // クリップボードの種類
     history: SheetGrid[]; // undo 用履歴
@@ -111,7 +205,13 @@ interface AppState {
   addPresetText: (texts: string[]) => void;
   deletePresetText: (id: string) => void;
   reorderPresetTexts: (from: number, to: number) => void;
+  reorderPresetTextCategories: (from: number, to: number) => void;
   resetPresetTexts: () => void;
+  addPresetTextCategory: () => void;
+  deletePresetTextCategory: (category: string) => void;
+  setPresetTextCategory: (category: string) => void;
+  renamePresetTextCategory: (from: string, to: string) => void;
+  movePresetText: (id: string, targetCategory: string, targetIndex?: number) => void;
   applyPresetTextToSelected: (texts: string[], rowIndex?: number, cursorStart?: number, cursorEnd?: number) => void;
   addSizePreset: (name: string) => void;
   deleteSizePreset: (index: number) => void;
@@ -158,6 +258,8 @@ export const useStore = create<AppState>((set, get) => ({
   presets: DEFAULT_PRESETS,
   sizePresets: DEFAULT_SIZE_PRESETS,
   presetTexts: DEFAULT_PRESET_TEXTS,
+  presetTextCategories: [DEFAULT_PRESET_TEXT_CATEGORY],
+  selectedPresetTextCategory: DEFAULT_PRESET_TEXT_CATEGORY,
   clipboard: null,
   clipboardMode: null,
     history: [cloneGrid(initialGrid)],
@@ -553,11 +655,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   addPresetText: (texts) => {
-    const { presetTexts, layout } = get();
+    const { presetTexts, layout, selectedPresetTextCategory } = get();
     const padded = Array.from({ length: layout.itemsPerLabel }, (_, i) => texts[i] ?? "");
     const item: PresetTextItem = {
       id: `pt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       text: padded,
+      category: normalizePresetTextCategory(selectedPresetTextCategory),
     };
     set({ presetTexts: [...presetTexts, item] });
   },
@@ -575,8 +678,81 @@ export const useStore = create<AppState>((set, get) => ({
     set({ presetTexts: updated });
   },
 
+  reorderPresetTextCategories: (from, to) => {
+    const { presetTextCategories } = get();
+    const updated = [...presetTextCategories];
+    const [moved] = updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    set({ presetTextCategories: updated });
+  },
+
+  addPresetTextCategory: () => {
+    const { presetTextCategories } = get();
+    let index = presetTextCategories.length + 1;
+    let next = `カテゴリ${index}`;
+    while (presetTextCategories.some((category) => normalizePresetTextCategory(category) === next)) {
+      index += 1;
+      next = `カテゴリ${index}`;
+    }
+    set({
+      presetTextCategories: normalizePresetTextCategories([...presetTextCategories, next]),
+      selectedPresetTextCategory: next,
+    });
+  },
+
+  deletePresetTextCategory: (category) => {
+    const normalized = normalizePresetTextCategory(category);
+    const { presetTextCategories, presetTexts, selectedPresetTextCategory } = get();
+    const remainingCategories = normalizePresetTextCategories(presetTextCategories.filter((item) => normalizePresetTextCategory(item) !== normalized));
+    const remainingTexts = presetTexts.filter((item) => normalizePresetTextCategory(item.category) !== normalized);
+    const nextSelected = selectedPresetTextCategory === normalized
+      ? remainingCategories[0] ?? DEFAULT_PRESET_TEXT_CATEGORY
+      : selectedPresetTextCategory;
+    set({
+      presetTextCategories: remainingCategories,
+      presetTexts: remainingTexts,
+      selectedPresetTextCategory: nextSelected,
+    });
+  },
+
+  setPresetTextCategory: (category) => {
+    set({ selectedPresetTextCategory: normalizePresetTextCategory(category) });
+  },
+
+  renamePresetTextCategory: (from, to) => {
+    const normalizedFrom = normalizePresetTextCategory(from);
+    const normalizedTo = normalizePresetTextCategory(to);
+    if (normalizedFrom === normalizedTo) return;
+    const { presetTexts, presetTextCategories, selectedPresetTextCategory } = get();
+    const nextPresetTexts = presetTexts.map((item) => {
+      const normalizedItemCategory = normalizePresetTextCategory(item.category);
+      if (normalizedItemCategory !== normalizedFrom) return normalizePresetTextItem(item);
+      return {
+        ...normalizePresetTextItem(item),
+        category: normalizedTo,
+      };
+    });
+    const nextCategories = normalizePresetTextCategories(
+      presetTextCategories.map((item) => (normalizePresetTextCategory(item) === normalizedFrom ? normalizedTo : item))
+    );
+    set({
+      presetTexts: nextPresetTexts,
+      presetTextCategories: nextCategories,
+      selectedPresetTextCategory: selectedPresetTextCategory === normalizedFrom ? normalizedTo : selectedPresetTextCategory,
+    });
+  },
+
+  movePresetText: (id, targetCategory, targetIndex) => {
+    const { presetTexts } = get();
+    set({ presetTexts: movePresetTextItem(presetTexts, id, targetCategory, targetIndex) });
+  },
+
   resetPresetTexts: () => {
-    set({ presetTexts: [...DEFAULT_PRESET_TEXTS] });
+    set({
+      presetTexts: [...DEFAULT_PRESET_TEXTS],
+      presetTextCategories: [DEFAULT_PRESET_TEXT_CATEGORY],
+      selectedPresetTextCategory: DEFAULT_PRESET_TEXT_CATEGORY,
+    });
   },
 
   applyPresetTextToSelected: (texts, rowIndex, cursorStart, cursorEnd) => {
@@ -752,9 +928,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   getProjectData: () => {
-    const { grid, layout, presets, sizePresets, presetTexts, exportConfig } = get();
+    const { grid, layout, presets, sizePresets, presetTexts, presetTextCategories, exportConfig } = get();
     return {
-      version: 2,
+      version: 4,
       grid: cloneGrid(grid),
       layout: { ...layout },
       presets: presets.map((p) => ({
@@ -766,13 +942,20 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
-      presetTexts: presetTexts.map((p) => ({ id: p.id, text: [...p.text] })),
+      presetTexts: presetTexts.map((p) => ({ id: p.id, text: [...p.text], category: normalizePresetTextCategory(p.category) })),
+      presetTextCategories: [...presetTextCategories],
       exportConfig: { ...exportConfig },
     };
   },
 
   loadProjectData: (data) => {
     const newGrid = cloneGrid(data.grid);
+    const loadedPresetTexts = data.presetTexts
+      ? data.presetTexts.map((p: any) => normalizePresetTextItem({ id: p.id, text: [...p.text], category: p.category }))
+      : [...DEFAULT_PRESET_TEXTS];
+    const loadedCategories = data.presetTextCategories
+      ? normalizePresetTextCategories(data.presetTextCategories)
+      : uniquePresetTextCategories(loadedPresetTexts);
     set({
       grid: newGrid,
       layout: { ...data.layout },
@@ -785,9 +968,9 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
-      presetTexts: data.presetTexts
-        ? data.presetTexts.map((p: any) => ({ id: p.id, text: [...p.text] }))
-        : [],
+      presetTexts: loadedPresetTexts,
+      presetTextCategories: loadedCategories,
+      selectedPresetTextCategory: loadedCategories[0],
       exportConfig: { ...data.exportConfig },
       selectedRow: 0,
       selectedCol: 0,
