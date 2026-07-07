@@ -156,19 +156,21 @@ export function OverviewCanvas() {
     }
   };
 
-  // --- Overlay position in container-relative coords ---
+  // --- Overlay position in viewport-relative coords (fixed) ---
   const getOverlayStyle = (): React.CSSProperties => {
-    if (!editingCell || !containerRef.current) return { display: 'none' };
-    const container = containerRef.current;
-    const containerPad = 8; // p-2
-    const left = containerPad + (padding + sizeMargin + labelMargin + editingCell.col * cellW) * zoom - container.scrollLeft;
-    const top = containerPad + (padding + sizeMargin + labelMargin + editingCell.row * cellH) * zoom - container.scrollTop;
+    if (!editingCell || !containerRef.current || !canvasRef.current) return { display: 'none' };
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (padding + sizeMargin + labelMargin + editingCell.col * cellW) * zoom / scaleX;
+    const y = (padding + sizeMargin + labelMargin + editingCell.row * cellH) * zoom / scaleY;
     return {
-      position: 'absolute' as const,
-      left: `${left}px`,
-      top: `${top}px`,
-      width: `${(cellW - 1) * zoom}px`,
-      height: `${(cellH - 1) * zoom}px`,
+      position: 'fixed' as const,
+      left: `${rect.left + x}px`,
+      top: `${rect.top + y}px`,
+      width: `${(cellW - 1) * zoom / scaleX}px`,
+      height: `${(cellH - 1) * zoom / scaleY}px`,
     };
   };
 
