@@ -222,7 +222,7 @@ interface AppState {
   importCsvData: (rows: string[][], hasHeader: boolean, newLayout?: LayoutConfig) => boolean;
   hasExistingData: () => boolean;
   getProjectData: () => ProjectData;
-  loadProjectData: (data: ProjectData) => void;
+  loadProjectData: (data: ProjectData, keepPresets?: boolean) => void;
 }
 
 const initialLayout: LayoutConfig = DEFAULT_PRESETS[0].layout;
@@ -948,9 +948,19 @@ export const useStore = create<AppState>((set, get) => ({
     };
   },
 
-  loadProjectData: (data) => {
+  loadProjectData: (data, keepPresets) => {
     const newGrid = cloneGrid(data.grid);
-    // プリセットラベル(presetTexts)は履歴/CSV読込で上書きしない
+    // keepPresets=true のときはプリセットラベルを上書きしない（履歴/CSV読込）
+    const loadedPresetTexts = keepPresets
+      ? get().presetTexts
+      : data.presetTexts
+        ? data.presetTexts.map((p: any) => normalizePresetTextItem({ id: p.id, text: [...p.text], category: p.category }))
+        : [...DEFAULT_PRESET_TEXTS];
+    const loadedCategories = keepPresets
+      ? get().presetTextCategories
+      : data.presetTextCategories
+        ? normalizePresetTextCategories(data.presetTextCategories)
+        : uniquePresetTextCategories(loadedPresetTexts);
     set({
       grid: newGrid,
       layout: { ...data.layout },
@@ -963,6 +973,9 @@ export const useStore = create<AppState>((set, get) => ({
         name: p.name,
         labelSize: { ...p.labelSize },
       })),
+      presetTexts: loadedPresetTexts,
+      presetTextCategories: loadedCategories,
+      selectedPresetTextCategory: loadedCategories[0] ?? get().selectedPresetTextCategory,
       exportConfig: { ...data.exportConfig },
       selectedRow: 0,
       selectedCol: 0,

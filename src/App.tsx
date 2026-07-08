@@ -8,6 +8,7 @@ import type { LayoutConfig } from "./lib/types";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface ImportModalData {
   filename: string;
@@ -103,6 +104,22 @@ export default function App() {
     return () => clearInterval(interval);
   }, [autoSave]);
 
+  // アプリ終了時（閉じる）にも保存 — Tauri onCloseRequested で確実に保存
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    getCurrentWebviewWindow().onCloseRequested(async () => {
+      try {
+        const data = getProjectData();
+        const projectJson = JSON.stringify(data);
+        const paneWidths = JSON.stringify({ left: leftPaneWidth, right: rightPaneWidth });
+        await invoke("save_settings", { projectJson, paneWidths });
+      } catch {
+        // 終了時の保存失敗は無視
+      }
+    }).then((fn) => { unlisten = fn; });
+    return () => { unlisten?.(); };
+  }, [getProjectData, leftPaneWidth, rightPaneWidth]);
+
   // 履歴一覧読み込み
   const loadHistory = useCallback(async () => {
     try {
@@ -175,7 +192,7 @@ export default function App() {
   const handleRestoreHistory = async (entry: HistoryEntry) => {
     try {
       const data = JSON.parse(entry.project_json);
-      loadProjectData(data);
+      loadProjectData(data, true);
       setStatusMsg(`履歴から復元: ${entry.name} (${entry.timestamp})`);
     } catch (e) {
       setStatusMsg(`復元エラー: ${e}`);
