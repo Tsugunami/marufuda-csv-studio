@@ -17,16 +17,6 @@ export function OutputPreview() {
       <div className="flex items-center gap-3 px-4 py-2 border-b border-slate-200 bg-slate-50 rounded-t-lg">
         <h3 className="text-sm font-bold text-slate-700">出力プレビュー</h3>
         <div className="ml-auto flex items-center gap-3">
-          <label className="flex items-center gap-1 text-xs text-slate-600">
-            <input
-              type="checkbox"
-              checked={exportConfig.withHeader}
-              onChange={(e) =>
-                setExportConfig({ withHeader: e.target.checked })
-              }
-            />
-            ヘッダ
-          </label>
           <select
             className="border border-slate-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
             value={exportConfig.encoding}

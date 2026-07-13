@@ -433,9 +433,10 @@ export const useStore = create<AppState>((set, get) => ({
     const delimIdx = getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign);
 
     // 前ブロック rows[0..delimIdx-1]、後ブロック rows[delimIdx+1..n-1]
+    // 反転時はブロック内の上下も反転させる（行0↔行n-1 のミラー）
     const n = layout.itemsPerLabel;
-    const beforeRows = sourceLabel.rows.slice(0, delimIdx).map((r) => ({ text: r.text }));
-    const afterRows = sourceLabel.rows.slice(delimIdx + 1).map((r) => ({ text: r.text }));
+    const beforeRows = sourceLabel.rows.slice(0, delimIdx).map((r) => ({ text: r.text })).reverse();
+    const afterRows = sourceLabel.rows.slice(delimIdx + 1).map((r) => ({ text: r.text })).reverse();
 
     let targetRow = selectedRow;
     let targetCol = selectedCol;

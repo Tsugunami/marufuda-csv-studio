@@ -9,6 +9,10 @@ src-tauri/target/
 src-tauri/Cargo.lock
 src-tauri/gen/schemas/
 
+# alym解析用一時ファイル
+docs/alym_*/
+docs/alym_*.zip
+
 # Editor
 .vscode/*
 !.vscode/extensions.json

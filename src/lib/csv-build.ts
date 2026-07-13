@@ -19,21 +19,6 @@ export function buildCsvMatrix(
     ? getDelimiterRowIndex(layout.itemsPerLabel, layout.delimiterAlign)
     : -1;
 
-  // ヘッダ行
-  if (config.withHeader) {
-    const itemsPerLabel = grid.labels[0]?.[0]?.rows.length ?? 0;
-    let headers: string[];
-    if (config.headerNames && config.headerNames.length === itemsPerLabel) {
-      headers = [...config.headerNames];
-    } else {
-      headers = Array.from(
-        { length: itemsPerLabel },
-        (_, i) => `項目${i + 1}`
-      );
-    }
-    rows.push(headers);
-  }
-
   // データ行: 左上→右下の順（行優先）
   for (let r = 0; r < grid.rows; r++) {
     for (let c = 0; c < grid.cols; c++) {

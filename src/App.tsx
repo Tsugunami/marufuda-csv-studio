@@ -193,6 +193,7 @@ export default function App() {
     try {
       const data = JSON.parse(entry.project_json);
       loadProjectData(data, true);
+      setShowHistory(false);
       setStatusMsg(`履歴から復元: ${entry.name} (${entry.timestamp})`);
     } catch (e) {
       setStatusMsg(`復元エラー: ${e}`);

@@ -37,6 +37,7 @@ export function OverviewCanvas() {
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [editingLine, setEditingLine] = useState<number>(-1);
   const [reorderMode, setReorderMode] = useState(false);
+  const [presetTextZoom, setPresetTextZoom] = useState(1);
   const [newPresetText, setNewPresetText] = useState("");
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingCategoryDraft, setEditingCategoryDraft] = useState("");
@@ -635,6 +636,13 @@ export function OverviewCanvas() {
           >
             ⇅
           </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button className="rounded border border-slate-300 px-1.5 py-1 text-[10px] text-slate-500 hover:bg-slate-100 leading-none"
+              onClick={() => setPresetTextZoom((z) => Math.min(2, +(z + 0.2).toFixed(2)))}>A+</button>
+            <span className="text-[10px] text-slate-400 w-7 text-center">{Math.round(presetTextZoom * 100)}%</span>
+            <button className="rounded border border-slate-300 px-1.5 py-1 text-[10px] text-slate-500 hover:bg-slate-100 leading-none"
+              onClick={() => setPresetTextZoom((z) => Math.max(0.5, +(z - 0.2).toFixed(2)))}>A−</button>
+          </div>
           <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap flex-1">
             {categories.map((category, categoryIndex) => {
               const isActive = category === activePresetTextCategory;
@@ -668,7 +676,7 @@ export function OverviewCanvas() {
                       ? "border-brand-300 bg-brand-100 text-brand-800"
                       : "border-slate-300 bg-slate-100 text-slate-600 hover:bg-slate-200"
                   } ${reorderMode ? "cursor-grab active:cursor-grabbing" : ""}`}
-                  onClick={() => !reorderMode && setPresetTextCategory(category)}
+                  onClick={() => setPresetTextCategory(category)}
                   onDoubleClick={() => {
                     if (!reorderMode) return;
                     setEditingCategory(category);
@@ -791,7 +799,7 @@ export function OverviewCanvas() {
                       )}
                       <div
                         draggable
-                        className={`group inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border px-2 py-1 text-sm leading-tight text-slate-700 cursor-grab active:cursor-grabbing ${
+                        className={`group inline-flex max-w-full items-center gap-1 whitespace-normal break-words rounded-full border px-2 py-1 leading-tight text-slate-700 cursor-grab active:cursor-grabbing ${
                           isDragOverLeft || isDragOverRight
                             ? "border-brand-400 bg-brand-50 shadow-sm ring-1 ring-brand-300"
                             : "border-slate-300 bg-slate-100 hover:bg-slate-200"
@@ -843,7 +851,7 @@ export function OverviewCanvas() {
                           setDragOverCategory(null);
                           setDragOverTextIndex(null);
                         }}
-                        title="ドラッグして並び替え / カテゴリタブへドロップ"
+                        style={{ fontSize: `${Math.max(8, 14 * presetTextZoom)}px` }}
                       >
                         <span className="text-slate-400 group-hover:text-brand-600">☰</span>
                         <span>{labelText}</span>
@@ -874,7 +882,8 @@ export function OverviewCanvas() {
                   return (
                     <button
                       key={p.id}
-                      className={`max-w-full whitespace-normal break-words rounded-full border px-3 py-1 text-sm leading-tight ${
+                      style={{ fontSize: `${Math.max(8, 14 * presetTextZoom)}px` }}
+                      className={`max-w-full whitespace-normal break-words rounded-full border px-3 py-1 leading-tight ${
                         editingCell
                           ? "border-brand-300 bg-brand-50 text-brand-800 font-medium hover:bg-brand-100"
                           : "border-slate-300 bg-slate-100 text-slate-600"
