@@ -229,9 +229,9 @@ export default function App() {
     try {
       const filePath = await open({
         filters: [
-          { name: "CSV / Excel", extensions: ["csv", "xlsx"] },
+          { name: "CSV / alym", extensions: ["csv", "alym"] },
+          { name: "ラベル屋さんテンプレート", extensions: ["alym"] },
           { name: "CSV", extensions: ["csv"] },
-          { name: "Excel", extensions: ["xlsx"] },
         ],
         multiple: false,
       });
@@ -240,19 +240,28 @@ export default function App() {
         return;
       }
 
-      const isXlsx = /\.xlsx$/i.test(filePath);
-      const cmd = isXlsx ? "import_xlsx" : "import_csv";
-      const result = await invoke<{ rows: string[][]; has_header: boolean }>(cmd, { path: filePath });
-      const { rows, has_header } = result;
-      if (!rows || rows.length === 0) {
-        setStatusMsg("ファイルが空です");
+      const filename = filePath.split(/[/\\]/).pop() || filePath;
+      const baseName = filename.replace(/\.(csv|xlsx|alym)$/i, "");
+
+      // alym の場合
+      if (/\.alym$/i.test(filePath)) {
+        const result = await invoke<{ rows: string[][]; has_header: boolean }>("import_alym", { path: filePath });
+        const alymRows = result.rows;
+        if (!alymRows || alymRows.length === 0) {
+          setStatusMsg("ファイルにデータがありません");
+          return;
+        }
+        // alymに含まれるレイアウト情報は無視し、現在のレイアウトで読み込む
+        doImport(alymRows, false, undefined, baseName);
         return;
       }
 
-      const filename = filePath.split(/[/\\]/).pop() || filePath;
-      const baseName = filename.replace(/\.(csv|xlsx)$/i, "");
+      const isXlsx = /\.xlsx$/i.test(filePath);
+      const cmd = isXlsx ? "import_xlsx" : "import_csv";
+      const csvResult = await invoke<{ rows: string[][]; has_header: boolean }>(cmd, { path: filePath });
+      const { rows: csvRows, has_header } = csvResult;
 
-      const dataRows = has_header ? rows.slice(1) : rows;
+      const dataRows = csvRows ? (has_header ? csvRows.slice(1) : csvRows) : [];
       const csvItemsPerLabel = Math.max(...dataRows.map((r) => r.length), 0);
       const csvTotalLabels = dataRows.length;
 
@@ -262,9 +271,9 @@ export default function App() {
       if (currentTotalLabels === csvTotalLabels && currentItemsPerLabel === csvItemsPerLabel) {
         setCsvFilename(baseName);
         if (hasExistingData()) {
-          setOverwriteModal({ filename: baseName, csvRows: rows, csvHasHeader: has_header, newLayout: undefined });
+          setOverwriteModal({ filename: baseName, csvRows: csvRows ?? [], csvHasHeader: has_header ?? false, newLayout: undefined });
         } else {
-          doImport(rows, has_header, undefined, baseName);
+          doImport(csvRows ?? [], has_header ?? false, undefined, baseName);
         }
         return;
       }
@@ -321,7 +330,7 @@ export default function App() {
         filename: baseName, csvTotalLabels, csvItemsPerLabel, csvBlockCols, csvBlockRows,
         currentBlockCols: layout.blockCols, currentBlockRows: layout.blockRows,
         currentItemsPerLabel: layout.itemsPerLabel, currentTotalLabels,
-        matchType, matchingPresetName, csvRows: rows, csvHasHeader: has_header, newLayout,
+        matchType, matchingPresetName, csvRows: csvRows ?? [], csvHasHeader: has_header ?? false, newLayout,
       });
     } catch (e) {
       setStatusMsg(`CSV読込エラー: ${e}`);

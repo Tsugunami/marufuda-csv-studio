@@ -50,6 +50,47 @@ fn export_alym(request: AlymExportRequest) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn import_alym(path: String) -> Result<CsvImportResult, String> {
+    use std::io::Read;
+
+    let file = std::fs::File::open(&path).map_err(|e| format!("ファイルを開けません: {}", e))?;
+    let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("ZIP読み込みエラー: {}", e))?;
+    let mut json_str = String::new();
+    zip.by_name("document/document.data")
+        .map_err(|e| format!("document.data が見つかりません: {}", e))?
+        .read_to_string(&mut json_str)
+        .map_err(|e| format!("読み込みエラー: {}", e))?;
+
+    let json: serde_json::Value = serde_json::from_str(&json_str)
+        .map_err(|e| format!("JSONパースエラー: {}", e))?;
+
+    // insertionData をトップレベルまたは surfaces から検索
+    let ins = json.get("insertionData")
+        .or_else(|| json["pageList"][0]["surfaces"][0].get("insertionData"))
+        .ok_or_else(|| "insertionData が見つかりません".to_string())?;
+
+    let row_data = ins["rowDataArray"]
+        .as_array()
+        .ok_or_else(|| "rowDataArray が見つかりません".to_string())?;
+
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    let is_first_header = ins["isFirstRowAsColumnName"].as_bool().unwrap_or(false);
+    let start_idx = if is_first_header { 1 } else { 0 };
+
+    for i in start_idx..row_data.len() {
+        let entry = &row_data[i];
+        let cells: Vec<String> = entry["cellDataArray"].as_array()
+            .map(|arr| arr.iter().map(|c| c["content"].as_str().unwrap_or("").to_string()).collect())
+            .unwrap_or_default();
+        if cells.iter().all(|c| c.is_empty()) { continue; }
+        rows.push(cells);
+    }
+
+    let has_header = false; // alymから読み込む場合、ヘッダはラベル屋さんの列名なので不要
+    Ok(CsvImportResult { rows, has_header })
+}
+
+#[tauri::command]
 fn export_csv(request: CsvExportRequest) -> Result<String, String> {
     let path = PathBuf::from(&request.path);
 
@@ -385,7 +426,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
-            export_csv, import_csv, export_xlsx, import_xlsx, export_alym,
+            export_csv, import_csv, export_xlsx, import_xlsx, export_alym, import_alym,
             save_settings, load_settings, save_history, load_history_list, delete_history
         ])
         .run(tauri::generate_context!())
