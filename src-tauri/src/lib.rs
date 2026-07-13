@@ -1,4 +1,6 @@
+#![recursion_limit = "256"]
 mod csv_export;
+mod alym_export;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -27,6 +29,24 @@ pub struct CsvImportResult {
 pub struct SettingsData {
     pub project_json: String,      // ProjectData のJSON文字列
     pub pane_widths: String,       // ペイン幅のJSON文字列
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AlymExportRequest {
+    pub rows: Vec<Vec<String>>,
+    pub cols: u32,
+    pub rows_count: u32,
+    pub items_per_label: u32,
+    pub path: String,
+}
+
+#[tauri::command]
+fn export_alym(request: AlymExportRequest) -> Result<String, String> {
+    let tmpl = alym_export::get_template_by_grid(request.cols, request.rows_count)
+        .ok_or_else(|| format!("対応するテンプレートがありません: {}列×{}行", request.cols, request.rows_count))?;
+    let doc = alym_export::build_document_json(tmpl, request.items_per_label, &request.rows);
+    alym_export::write_alym(&request.path, &doc)?;
+    Ok(request.path)
 }
 
 #[tauri::command]
@@ -365,7 +385,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
-            export_csv, import_csv, export_xlsx, import_xlsx,
+            export_csv, import_csv, export_xlsx, import_xlsx, export_alym,
             save_settings, load_settings, save_history, load_history_list, delete_history
         ])
         .run(tauri::generate_context!())
