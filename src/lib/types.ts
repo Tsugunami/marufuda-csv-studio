@@ -40,6 +40,16 @@ export interface LayoutConfig {
   labelSize: LabelSize; // ラベル物理サイズ
 }
 
+/** 再利用する物理ラベルシート（本文データとは別管理） */
+export interface ReusableSheet {
+  id: string;
+  name: string;
+  layout: LayoutConfig;
+  usedCells: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 /** 出力設定 */
 export interface ExportConfig {
   encoding: "shift_jis" | "utf8" | "utf8_bom";

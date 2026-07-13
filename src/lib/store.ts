@@ -33,7 +33,7 @@ function createEmptyLabel(itemsPerLabel: number): Label {
   };
 }
 
-function createEmptyGrid(
+export function createEmptyGrid(
   cols: number,
   rows: number,
   itemsPerLabel: number
@@ -164,6 +164,8 @@ export interface ProjectData {
   presetTexts: PresetTextItem[];
   presetTextCategories?: string[];
   exportConfig: ExportConfig;
+  reusableSheetId?: string | null;
+  usedCells?: string[];
 }
 
 interface AppState {
@@ -172,6 +174,8 @@ interface AppState {
   selectedRow: number;
   selectedCol: number;
   selectedCells: Set<string>; // 複数選択
+  usedCells: Set<string>; // 物理的に使用済みのラベル位置
+  reusableSheetId: string | null;
   exportConfig: ExportConfig;
   presets: typeof DEFAULT_PRESETS;
   sizePresets: SizePreset[];
@@ -221,6 +225,8 @@ interface AppState {
   setCsvFilename: (name: string) => void;
   importCsvData: (rows: string[][], hasHeader: boolean, newLayout?: LayoutConfig) => boolean;
   hasExistingData: () => boolean;
+  startNewProject: (layout: LayoutConfig, usedCells?: string[], reusableSheetId?: string | null) => void;
+  markFilledCellsUsed: () => string[];
   getProjectData: () => ProjectData;
   loadProjectData: (data: ProjectData, keepPresets?: boolean) => void;
 }
@@ -250,6 +256,8 @@ export const useStore = create<AppState>((set, get) => ({
   selectedRow: 0,
   selectedCol: 0,
   selectedCells: new Set<string>(),
+  usedCells: new Set<string>(),
+  reusableSheetId: null,
   exportConfig: {
     encoding: "shift_jis",
     withHeader: true,
@@ -272,7 +280,9 @@ export const useStore = create<AppState>((set, get) => ({
     const structChanged =
       oldLayout.blockCols !== newLayout.blockCols ||
       oldLayout.blockRows !== newLayout.blockRows ||
-      oldLayout.itemsPerLabel !== newLayout.itemsPerLabel;
+      oldLayout.itemsPerLabel !== newLayout.itemsPerLabel ||
+      oldLayout.labelSize.widthMm !== newLayout.labelSize.widthMm ||
+      oldLayout.labelSize.heightMm !== newLayout.labelSize.heightMm;
 
     if (structChanged) {
       const newGrid = createEmptyGrid(
@@ -288,6 +298,8 @@ export const useStore = create<AppState>((set, get) => ({
         selectedRow: 0,
         selectedCol: 0,
         selectedCells: new Set<string>(),
+        usedCells: structChanged ? new Set<string>() : get().usedCells,
+        reusableSheetId: structChanged ? null : get().reusableSheetId,
       });
     } else {
       // ブロック構造が変わらない場合はデータを保持
@@ -322,11 +334,14 @@ export const useStore = create<AppState>((set, get) => ({
       selectedRow: 0,
       selectedCol: 0,
       selectedCells: new Set<string>(),
+      usedCells: new Set<string>(),
+      reusableSheetId: null,
     });
   },
 
         selectLabel: (row, col, multi, range) => {
-    const { selectedCells, selectedRow, selectedCol } = get();
+    const { selectedCells, selectedRow, selectedCol, usedCells } = get();
+    if (usedCells.has(cellKey(row, col))) return;
     if (range) {
       // Shift+クリック: 前回選択セルから今回クリックセルまでの矩形範囲をすべて選択
       const minRow = Math.min(selectedRow, row);
@@ -336,7 +351,7 @@ export const useStore = create<AppState>((set, get) => ({
       const next = new Set<string>();
       for (let r = minRow; r <= maxRow; r++) {
         for (let c = minCol; c <= maxCol; c++) {
-          next.add(cellKey(r, c));
+          if (!usedCells.has(cellKey(r, c))) next.add(cellKey(r, c));
         }
       }
       set({ selectedRow: row, selectedCol: col, selectedCells: next });
@@ -359,11 +374,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   selectAll: () => {
-    const { grid } = get();
+    const { grid, usedCells } = get();
     const all = new Set<string>();
     for (let r = 0; r < grid.rows; r++) {
       for (let c = 0; c < grid.cols; c++) {
-        all.add(cellKey(r, c));
+        if (!usedCells.has(cellKey(r, c))) all.add(cellKey(r, c));
       }
     }
     set({ selectedCells: all });
@@ -422,7 +437,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   reverseTo: (direction) => {
-    const { grid, selectedRow, selectedCol, layout } = get();
+    const { grid, selectedRow, selectedCol, layout, usedCells } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
@@ -447,6 +462,7 @@ export const useStore = create<AppState>((set, get) => ({
       case "up": targetRow = selectedRow - 1; break;
     }
     if (targetRow < 0 || targetRow >= grid.rows || targetCol < 0 || targetCol >= grid.cols) return;
+    if (usedCells.has(cellKey(targetRow, targetCol))) return;
 
     const hist = pushHistory(get());
     const newLabels = grid.labels.map((rowArr) =>
@@ -480,7 +496,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   reverseCopyToClipboard: () => {
-    const { grid, selectedRow, selectedCol, layout } = get();
+    const { grid, selectedRow, selectedCol, layout, usedCells } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
@@ -501,7 +517,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   copyTo: (direction) => {
-    const { grid, selectedRow, selectedCol, layout } = get();
+    const { grid, selectedRow, selectedCol, layout, usedCells } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
@@ -515,6 +531,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     if (targetRow < 0 || targetRow >= grid.rows || targetCol < 0 || targetCol >= grid.cols) return;
+    if (usedCells.has(cellKey(targetRow, targetCol))) return;
 
     const hist = pushHistory(get());
     const newLabels = grid.labels.map((rowArr) =>
@@ -561,7 +578,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   pasteFromClipboard: () => {
-    const { grid, selectedCells, clipboard } = get();
+    const { grid, selectedCells, clipboard, usedCells } = get();
     if (!clipboard) return;
 
     const hist = pushHistory(get());
@@ -575,6 +592,7 @@ export const useStore = create<AppState>((set, get) => ({
     // 複数選択されたセルすべてに貼り付け（デリミタ文字は保存しない）
     for (const key of selectedCells) {
       const [r, c] = key.split(",").map(Number);
+      if (usedCells.has(key)) continue;
       const targetLabel = newLabels[r]?.[c];
       if (!targetLabel) continue;
       for (let i = 0; i < targetLabel.rows.length; i++) {
@@ -822,6 +840,36 @@ export const useStore = create<AppState>((set, get) => ({
     return false;
   },
 
+  startNewProject: (layout, usedCellKeys = [], reusableSheetId = null) => {
+    const grid = createEmptyGrid(layout.blockCols, layout.blockRows, layout.itemsPerLabel);
+    set({
+      layout: { ...layout, labelSize: { ...layout.labelSize } },
+      grid,
+      selectedRow: 0,
+      selectedCol: 0,
+      selectedCells: new Set<string>(),
+      usedCells: new Set(usedCellKeys),
+      reusableSheetId,
+      clipboard: null,
+      clipboardMode: null,
+      history: [cloneGrid(grid)],
+      historyIndex: 0,
+      csvFilename: "",
+    });
+  },
+
+  markFilledCellsUsed: () => {
+    const { grid, usedCells } = get();
+    const next = new Set(usedCells);
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (grid.labels[r][c].rows.some((row) => row.text.trim() !== "")) next.add(cellKey(r, c));
+      }
+    }
+    set({ usedCells: next, selectedCells: new Set<string>() });
+    return [...next];
+  },
+
     importCsvData: (rows, hasHeader, newLayout) => {
     const state = get();
     const layout = newLayout ? { ...newLayout } : { ...state.layout };
@@ -924,12 +972,14 @@ export const useStore = create<AppState>((set, get) => ({
       selectedCells: new Set<string>(),
       clipboard: null,
       clipboardMode: null,
+      usedCells: new Set<string>(),
+      reusableSheetId: null,
     });
     return true;
   },
 
   getProjectData: () => {
-    const { grid, layout, presets, sizePresets, presetTexts, presetTextCategories, exportConfig } = get();
+    const { grid, layout, presets, sizePresets, presetTexts, presetTextCategories, exportConfig, usedCells, reusableSheetId } = get();
     return {
       version: 4,
       grid: cloneGrid(grid),
@@ -946,6 +996,8 @@ export const useStore = create<AppState>((set, get) => ({
       presetTexts: presetTexts.map((p) => ({ id: p.id, text: [...p.text], category: normalizePresetTextCategory(p.category) })),
       presetTextCategories: [...presetTextCategories],
       exportConfig: { ...exportConfig },
+      reusableSheetId,
+      usedCells: [...usedCells],
     };
   },
 
@@ -983,6 +1035,8 @@ export const useStore = create<AppState>((set, get) => ({
       selectedCells: new Set<string>(),
       clipboard: null,
       clipboardMode: null,
+      reusableSheetId: data.reusableSheetId ?? null,
+      usedCells: new Set(data.usedCells ?? []),
       history: [cloneGrid(newGrid)],
       historyIndex: 0,
     });

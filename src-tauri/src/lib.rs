@@ -352,6 +352,29 @@ fn load_settings() -> Result<SettingsData, String> {
     Ok(data)
 }
 
+fn reusable_sheets_path() -> Result<PathBuf, String> {
+    let dir = dirs_next::data_dir()
+        .ok_or_else(|| "データディレクトリが見つかりません".to_string())?
+        .join("marufuda-csv-studio");
+    fs::create_dir_all(&dir).map_err(|e| format!("ディレクトリ作成エラー: {}", e))?;
+    Ok(dir.join("reusable-sheets.json"))
+}
+
+#[tauri::command]
+fn save_reusable_sheets(sheets_json: String) -> Result<(), String> {
+    let path = reusable_sheets_path()?;
+    fs::write(path, sheets_json).map_err(|e| format!("残りシート保存エラー: {}", e))
+}
+
+#[tauri::command]
+fn load_reusable_sheets() -> Result<String, String> {
+    let path = reusable_sheets_path()?;
+    if !path.exists() {
+        return Ok("[]".to_string());
+    }
+    fs::read_to_string(path).map_err(|e| format!("残りシート読込エラー: {}", e))
+}
+
 #[tauri::command]
 fn save_history(name: String, project_json: String) -> Result<String, String> {
     let dir = dirs_next::data_dir()
@@ -427,7 +450,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .invoke_handler(tauri::generate_handler![
             export_csv, import_csv, export_xlsx, import_xlsx, export_alym, import_alym,
-            save_settings, load_settings, save_history, load_history_list, delete_history
+            save_settings, load_settings, save_history, load_history_list, delete_history,
+            save_reusable_sheets, load_reusable_sheets
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

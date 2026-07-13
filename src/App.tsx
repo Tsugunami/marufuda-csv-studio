@@ -4,7 +4,7 @@ import { OverviewCanvas } from "./components/OverviewCanvas";
 import { LabelEditor } from "./components/LabelEditor";
 import { ExportBar } from "./components/ExportBar";
 import { useStore } from "./lib/store";
-import type { LayoutConfig } from "./lib/types";
+import type { LayoutConfig, ReusableSheet } from "./lib/types";
 import { save, open } from "@tauri-apps/plugin-dialog";
 import { writeTextFile, readTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
@@ -44,6 +44,9 @@ export default function App() {
     setCsvFilename,
     applyPreset,
     setLayout,
+    startNewProject,
+    markFilledCellsUsed,
+    reusableSheetId,
   } = useStore();
   const [statusMsg, setStatusMsg] = useState("");
   const [importModal, setImportModal] = useState<ImportModalData | null>(null);
@@ -60,6 +63,13 @@ export default function App() {
   const [rightPaneWidth, setRightPaneWidth] = useState(320);
   const [historyList, setHistoryList] = useState<HistoryEntry[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [reusableSheets, setReusableSheets] = useState<ReusableSheet[]>([]);
+  const reusableSheetsLoaded = useRef(false);
+  const [showNewModal, setShowNewModal] = useState(false);
+  const [newLayoutSource, setNewLayoutSource] = useState("current");
+  const [newSheetSource, setNewSheetSource] = useState<"blank" | "reuse">("blank");
+  const [newSheetName, setNewSheetName] = useState("");
+  const [selectedReusableSheetId, setSelectedReusableSheetId] = useState("");
 
   const resizing = useRef<"left" | "right" | null>(null);
 
@@ -84,6 +94,24 @@ export default function App() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const json = await invoke<string>("load_reusable_sheets");
+        setReusableSheets(JSON.parse(json));
+      } catch {
+        setReusableSheets([]);
+      } finally {
+        reusableSheetsLoaded.current = true;
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!reusableSheetsLoaded.current) return;
+    void invoke("save_reusable_sheets", { sheetsJson: JSON.stringify(reusableSheets) });
+  }, [reusableSheets]);
 
   // 自動保存関数
   const autoSave = useCallback(async () => {
@@ -210,6 +238,56 @@ export default function App() {
     } catch (e) {
       setStatusMsg(`削除エラー: ${e}`);
     }
+  };
+
+  const selectedNewLayout = newLayoutSource === "current"
+    ? layout
+    : presets[Number(newLayoutSource)]?.layout ?? layout;
+  const compatibleReusableSheets = reusableSheets.filter((sheet) =>
+    sheet.layout.blockCols === selectedNewLayout.blockCols &&
+    sheet.layout.blockRows === selectedNewLayout.blockRows &&
+    sheet.layout.labelSize.widthMm === selectedNewLayout.labelSize.widthMm &&
+    sheet.layout.labelSize.heightMm === selectedNewLayout.labelSize.heightMm
+  );
+
+  const handleOpenNewModal = () => {
+    setNewLayoutSource("current");
+    setNewSheetSource("blank");
+    setNewSheetName("");
+    setSelectedReusableSheetId("");
+    setShowNewModal(true);
+  };
+
+  const handleCreateNewProject = () => {
+    const selected = reusableSheets.find((sheet) => sheet.id === selectedReusableSheetId);
+    if (newSheetSource === "reuse" && selected) {
+      startNewProject(selectedNewLayout, selected.usedCells, selected.id);
+      setStatusMsg(`残りシートを使用して新規作成: ${selected.name}`);
+    } else {
+      let sheetId: string | null = null;
+      if (newSheetName.trim()) {
+        const now = new Date().toISOString();
+        const sheet: ReusableSheet = {
+          id: crypto.randomUUID(), name: newSheetName.trim(),
+          layout: { ...selectedNewLayout, labelSize: { ...selectedNewLayout.labelSize } },
+          usedCells: [], createdAt: now, updatedAt: now,
+        };
+        sheetId = sheet.id;
+        setReusableSheets((items) => [...items, sheet]);
+      }
+      startNewProject(selectedNewLayout, [], sheetId);
+      setStatusMsg(sheetId ? "残りシートとして登録して新規作成しました" : "白紙シートで新規作成しました");
+    }
+    setShowNewModal(false);
+  };
+
+  const handleMarkPrinted = () => {
+    if (!reusableSheetId) return;
+    const usedCells = markFilledCellsUsed();
+    setReusableSheets((items) => items.map((sheet) => sheet.id === reusableSheetId
+      ? { ...sheet, usedCells, updatedAt: new Date().toISOString() }
+      : sheet));
+    setStatusMsg("入力済みラベルを使用済みに更新しました");
   };
 
   const doImport = (
@@ -406,6 +484,18 @@ export default function App() {
         </span>
         <div className="ml-auto flex items-center gap-2">
           <button
+            className="px-3 py-1 text-xs rounded bg-brand-600 hover:bg-brand-500 text-white"
+            onClick={handleOpenNewModal}
+            title="白紙または残りラベルシートから新規作成"
+          >＋ 新規作成</button>
+          {reusableSheetId && (
+            <button
+              className="px-3 py-1 text-xs rounded bg-amber-600 hover:bg-amber-500 text-white"
+              onClick={handleMarkPrinted}
+              title="入力済みのラベルを物理的な使用済み位置として保存"
+            >印刷済みに更新</button>
+          )}
+          <button
             className="px-3 py-1 text-xs rounded bg-slate-600 hover:bg-slate-500 text-white"
             onClick={() => { setShowHistory(!showHistory); if (!showHistory) loadHistory(); }}
             title="保存履歴"
@@ -492,6 +582,57 @@ export default function App() {
           )}
         </aside>
       </div>
+
+      {showNewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-[460px] max-w-[92vw] rounded-lg bg-white p-5 shadow-xl">
+            <h2 className="mb-1 text-base font-bold text-slate-800">新規作成</h2>
+            <p className="mb-4 text-xs text-slate-500">現在の入力内容は新しい作業シートへ切り替わります。</p>
+
+            <label className="mb-1 block text-xs font-medium text-slate-700">レイアウト</label>
+            <select className="mb-4 w-full rounded border border-slate-300 px-2 py-1.5 text-sm"
+              value={newLayoutSource} onChange={(e) => { setNewLayoutSource(e.target.value); setSelectedReusableSheetId(""); }}>
+              <option value="current">現在の設定（{layout.blockCols}×{layout.blockRows}面）</option>
+              {presets.map((preset, index) => (
+                <option key={`${preset.name}-${index}`} value={String(index)}>{preset.name}（{preset.layout.blockCols}×{preset.layout.blockRows}面）</option>
+              ))}
+            </select>
+
+            <label className="mb-1 block text-xs font-medium text-slate-700">用紙</label>
+            <div className="mb-3 space-y-2 text-sm text-slate-700">
+              <label className="flex items-center gap-2"><input type="radio" checked={newSheetSource === "blank"} onChange={() => setNewSheetSource("blank")} />白紙シートから作成</label>
+              <label className="flex items-center gap-2"><input type="radio" checked={newSheetSource === "reuse"} onChange={() => setNewSheetSource("reuse")} />保存済みの残りラベルシートを使用</label>
+            </div>
+
+            {newSheetSource === "blank" ? (
+              <div className="mb-4">
+                <label className="mb-1 block text-xs font-medium text-slate-700">残りシート名（任意）</label>
+                <input className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" value={newSheetName}
+                  placeholder="例: A-ONE 31509・事務所棚" onChange={(e) => setNewSheetName(e.target.value)} />
+                <p className="mt-1 text-[11px] text-slate-500">入力すると、印刷済み位置を次回以降に再利用できるシートとして登録します。</p>
+              </div>
+            ) : (
+              <div className="mb-4">
+                <select className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm" value={selectedReusableSheetId}
+                  onChange={(e) => setSelectedReusableSheetId(e.target.value)}>
+                  <option value="">残りシートを選択</option>
+                  {compatibleReusableSheets.map((sheet) => (
+                    <option key={sheet.id} value={sheet.id}>{sheet.name}（残り {selectedNewLayout.blockCols * selectedNewLayout.blockRows - sheet.usedCells.length}/{selectedNewLayout.blockCols * selectedNewLayout.blockRows} 面）</option>
+                  ))}
+                </select>
+                {compatibleReusableSheets.length === 0 && <p className="mt-1 text-xs text-amber-600">このレイアウトと一致する残りシートはありません。</p>}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button className="rounded bg-slate-200 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-300" onClick={() => setShowNewModal(false)}>キャンセル</button>
+              <button className="rounded bg-brand-600 px-3 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-40"
+                disabled={newSheetSource === "reuse" && !selectedReusableSheetId}
+                onClick={handleCreateNewProject}>新規作成</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 下部 */}
       <footer className="shrink-0 border-t border-slate-200">

@@ -24,7 +24,7 @@ export function OverviewCanvas() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const selectionRef = useRef<{ start: number; end: number; row: number }>({ start: 0, end: 0, row: -1 });
   const {
-    grid, selectedRow, selectedCol, selectedCells, selectLabel, selectAll, layout,
+    grid, selectedRow, selectedCol, selectedCells, usedCells, selectLabel, selectAll, layout,
     clearSelected, undo, clipboard, clipboardMode,
     copyToClipboard, reverseCopyToClipboard, pasteFromClipboard,
     copyTo, reverseTo, setLayout, updateLabelRow, toggleLabelDelimiter,
@@ -272,6 +272,7 @@ export function OverviewCanvas() {
         const label = grid.labels[r]?.[c];
         const isSelected = r === selectedRow && c === selectedCol;
         const isMultiSelected = selectedCells.has(cellKey(r, c));
+        const isUsed = usedCells.has(cellKey(r, c));
         const isEditing = editingCell !== null && r === editingCell.row && c === editingCell.col;
         const labelUseDelim = label ? (label.useDelimiter ?? true) : true;
         const labelDelimIdx = labelUseDelim && layout.delimiter
@@ -282,12 +283,16 @@ export function OverviewCanvas() {
         if (editingCell && !isEditing) {
           // 編集モード中は他セルを半透明オーバーレイでグレーアウト（元の表示が透けて見える）
           // まず通常描画
-          if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
+          if (isUsed) ctx.fillStyle = "#e2e8f0";
+          else if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
           else if (isSelected) ctx.fillStyle = "#dbeafe";
           else if (hasData) ctx.fillStyle = "#f0fdf4";
           else ctx.fillStyle = "#ffffff";
           ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
-          if (isSelected) {
+          if (isUsed) {
+            ctx.strokeStyle = "#94a3b8";
+            ctx.lineWidth = 1;
+          } else if (isSelected) {
             ctx.strokeStyle = "#2563eb";
             ctx.lineWidth = 2;
           } else if (isMultiSelected) {
@@ -312,13 +317,17 @@ export function OverviewCanvas() {
         }
 
         // 通常描画（編集モードではない or 編集中のセル自身）
-        if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
+        if (isUsed) ctx.fillStyle = "#e2e8f0";
+        else if (isMultiSelected && !isSelected) ctx.fillStyle = "#fef3c7";
         else if (isSelected) ctx.fillStyle = "#dbeafe";
         else if (hasData) ctx.fillStyle = "#f0fdf4";
         else ctx.fillStyle = "#ffffff";
         ctx.fillRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
-        if (isSelected) {
+        if (isUsed) {
+          ctx.strokeStyle = "#94a3b8";
+          ctx.lineWidth = 1;
+        } else if (isSelected) {
           ctx.strokeStyle = "#2563eb";
           ctx.lineWidth = 2;
         } else if (isMultiSelected) {
@@ -331,7 +340,7 @@ export function OverviewCanvas() {
         ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
 
         // 編集中セルの文字はオーバーレイに任せる
-        if (isEditing) continue;
+        if (isEditing || isUsed) continue;
 
         if (label) {
           drawLabelText(x, y, label, labelDelimIdx);
@@ -349,7 +358,7 @@ export function OverviewCanvas() {
     }
 
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
+  }, [grid, selectedRow, selectedCol, selectedCells, usedCells, zoom, layout, cellW, cellH, padding, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
 
   useEffect(() => {
     draw();
@@ -389,6 +398,7 @@ export function OverviewCanvas() {
   const handleDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const cell = getCellFromEvent(e);
     if (cell) {
+      if (usedCells.has(cellKey(cell.row, cell.col))) return;
       selectLabel(cell.row, cell.col, false, false);
       setEditingCell({ row: cell.row, col: cell.col });
       setTimeout(() => inputRefs.current[0]?.focus(), 0);
@@ -399,6 +409,7 @@ export function OverviewCanvas() {
     e.preventDefault();
     const cell = getCellFromEvent(e);
     if (cell) {
+      if (usedCells.has(cellKey(cell.row, cell.col))) return;
       selectLabel(cell.row, cell.col);
       setCtxMenu({ x: e.clientX, y: e.clientY, row: cell.row, col: cell.col });
     }
