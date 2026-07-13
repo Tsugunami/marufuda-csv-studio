@@ -1,6 +1,7 @@
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { isLabelUsed } from "../lib/label-utils";
+import { validateCharLimit } from "../lib/char-limit";
 
 export function LabelEditor() {
     const {
@@ -116,27 +117,42 @@ export function LabelEditor() {
               ? layout.delimiter
               : ""
             : row.text;
+          const charInfo = isDelim && used
+            ? null
+            : validateCharLimit(row.text, layout.labelSize.widthMm, layout.labelSize.heightMm, layout.itemsPerLabel);
+          const isOver = charInfo && !charInfo.ok;
           return (
             <div key={i} className="flex items-center gap-2">
               <span
-                className={`text-xs w-6 text-right ${
+                className={`text-xs w-6 text-right shrink-0 ${
                   isDelim && used ? "text-red-500 font-bold" : "text-slate-400"
                 }`}
               >
                 {i + 1}
               </span>
-              <input
-                type="text"
-                className={`flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
-                  isDelim && used
-                    ? "border-red-300 bg-red-50 text-red-600 font-bold text-center focus:ring-red-300"
-                    : "border-slate-300 focus:ring-brand-500"
-                }`}
-                value={displayValue}
-                readOnly={isDelim && used}
-                placeholder={`行 ${i + 1}`}
-                onChange={(e) => updateLabelRow(i, e.target.value)}
-              />
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  className={`w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
+                    isDelim && used
+                      ? "border-red-300 bg-red-50 text-red-600 font-bold text-center focus:ring-red-300"
+                      : isOver
+                      ? "border-red-400 bg-red-50 focus:ring-red-400"
+                      : "border-slate-300 focus:ring-brand-500"
+                  }`}
+                  value={displayValue}
+                  readOnly={isDelim && used}
+                  placeholder={`行 ${i + 1}`}
+                  onChange={(e) => updateLabelRow(i, e.target.value)}
+                />
+                {charInfo && (
+                  <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] ${
+                    isOver ? "text-red-500 font-bold" : "text-slate-400"
+                  }`}>
+                    {Math.ceil(charInfo.fullwidthCount)}/{charInfo.maxChars}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}

@@ -4,6 +4,7 @@ const DRAG_THRESHOLD = 5;
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { getLabelDisplayTexts, isLabelUsed } from "../lib/label-utils";
+import { calcFontSizePt, countFullwidthChars, validateCharLimit } from "../lib/char-limit";
 
 function cellKey(r: number, c: number): string {
   return `${r},${c}`;
@@ -105,6 +106,17 @@ export function OverviewCanvas() {
   const editingDelimIdx = editingUseDelim && layout.delimiter
     ? getDelimiterRowIndex(layout.itemsPerLabel, editingLabel?.delimiterAlign ?? layout.delimiterAlign)
     : -1;
+  // 行番号を残した編集欄でも、最長行を横に見切れず確認できるようにする。
+  // 通常表示と同じ物理フォントサイズを基準に、必要なときだけ縮小する。
+  const editingMaxChars = editingLabel
+    ? Math.max(1, ...editingLabel.rows.map((row) => countFullwidthChars(row.text)))
+    : 1;
+  const viewFontSize = calcFontSizePt(layout.labelSize.heightMm, layout.itemsPerLabel)
+    * 0.3528 * (cellW / layout.labelSize.widthMm);
+  const editingFontSize = Math.max(
+    5,
+    Math.min(viewFontSize, (cellW - 16) / (editingMaxChars * 1.1)),
+  ) * zoom;
 
   const isEvenRows = layout.itemsPerLabel % 2 === 0;
   const effectiveAlign = isEvenRows && editingLabel?.delimiterAlign === 'center'
@@ -194,6 +206,28 @@ export function OverviewCanvas() {
     ctx.scale(zoom, zoom);
     ctx.translate(padding + sizeMargin + labelMargin, padding + sizeMargin + labelMargin);
 
+    const drawLabelText = (x: number, y: number, label: NonNullable<typeof grid.labels[number][number]>, delimIdx: number) => {
+      const displayTexts = getLabelDisplayTexts(label, layout);
+      const rowH = (cellH - 1) / displayTexts.length;
+      const fontSize = calcFontSizePt(layout.labelSize.heightMm, layout.itemsPerLabel)
+        * 0.3528 * (cellW / layout.labelSize.widthMm);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(x + 1, y + 1, cellW - 2, cellH - 2);
+      ctx.clip();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = `${fontSize}px \"Noto Sans JP\", sans-serif`;
+      const centerX = x + cellW / 2;
+      for (let i = 0; i < displayTexts.length; i++) {
+        const text = displayTexts[i];
+        if (text.trim() === "") continue;
+        ctx.fillStyle = i === delimIdx ? "#ef4444" : "#475569";
+        ctx.fillText(text, centerX, y + 0.5 + rowH * i + rowH / 2);
+      }
+      ctx.restore();
+    };
+
     // 左上ブロックのサイズ表示（列番号・行番号より外側）
     ctx.fillStyle = "#64748b";
     ctx.font = "10px sans-serif";
@@ -266,29 +300,7 @@ export function OverviewCanvas() {
           ctx.strokeRect(x + 0.5, y + 0.5, cellW - 1, cellH - 1);
           // テキストも通常描画
           if (label) {
-            const displayTexts = getLabelDisplayTexts(label, layout);
-            const maxTextW = cellW - 4;
-            const rowH = (cellH - 1) / displayTexts.length;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            const centerX = x + (cellW) / 2;
-            for (let i = 0; i < displayTexts.length; i++) {
-              const text = displayTexts[i];
-              if (text.trim() === "") continue;
-              const isDelim = i === labelDelimIdx;
-              ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
-              // フォントサイズを動的に調整（最大12px、行高&幅に収まるよう縮小）
-              let fontSize = Math.min(12, rowH * 0.85);
-              ctx.font = `${fontSize}px sans-serif`;
-              while (fontSize > 4 && ctx.measureText(text).width > maxTextW) {
-                fontSize -= 0.5;
-                ctx.font = `${fontSize}px sans-serif`;
-              }
-              const lineY = y + 0.5 + rowH * i + rowH / 2;
-              ctx.fillText(text, centerX, lineY);
-            }
-            ctx.textAlign = "start";
-            ctx.textBaseline = "alphabetic";
+            drawLabelText(x, y, label, labelDelimIdx);
           }
           // 上から半透明レイヤーを重ねる
           ctx.fillStyle = "rgba(226,232,240,0.75)";
@@ -322,29 +334,7 @@ export function OverviewCanvas() {
         if (isEditing) continue;
 
         if (label) {
-          const displayTexts = getLabelDisplayTexts(label, layout);
-          const maxTextW = cellW - 4;
-          const rowH = (cellH - 1) / displayTexts.length;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          const centerX = x + (cellW) / 2;
-          for (let i = 0; i < displayTexts.length; i++) {
-            const text = displayTexts[i];
-            if (text.trim() === "") continue;
-            const isDelim = i === labelDelimIdx;
-            ctx.fillStyle = isDelim ? "#ef4444" : "#475569";
-            // フォントサイズを動的に調整（最大12px、行高&幅に収まるよう縮小）
-            let fontSize = Math.min(12, rowH * 0.85);
-            ctx.font = `${fontSize}px sans-serif`;
-            while (fontSize > 4 && ctx.measureText(text).width > maxTextW) {
-              fontSize -= 0.5;
-              ctx.font = `${fontSize}px sans-serif`;
-            }
-            const lineY = y + 0.5 + rowH * i + rowH / 2;
-            ctx.fillText(text, centerX, lineY);
-          }
-          ctx.textAlign = "start";
-          ctx.textBaseline = "alphabetic";
+          drawLabelText(x, y, label, labelDelimIdx);
         }
       }
     }
@@ -359,7 +349,7 @@ export function OverviewCanvas() {
     }
 
     ctx.restore();
-  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, rowLineH, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
+  }, [grid, selectedRow, selectedCol, selectedCells, zoom, layout, cellW, cellH, padding, sizeMargin, labelMargin, clipboard, clipboardMode, editingCell]);
 
   useEffect(() => {
     draw();
@@ -1000,9 +990,11 @@ export function OverviewCanvas() {
                       className={`flex-1 border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 min-w-0 ${
                         readOnly
                           ? "bg-red-50 text-red-600 font-bold text-center"
+                          : !validateCharLimit(row.text, layout.labelSize.widthMm, layout.labelSize.heightMm, layout.itemsPerLabel).ok
+                          ? "bg-red-50 text-red-700"
                           : "bg-transparent"
                       }`}
-                      style={{ fontSize: `${Math.max(7, 10 * zoom)}px`, height: '100%' }}
+                      style={{ fontSize: `${editingFontSize}px`, height: '100%' }}
                       value={displayValue}
                       onChange={(e) => updateLabelRow(i, e.target.value)}
                       onFocus={() => {
