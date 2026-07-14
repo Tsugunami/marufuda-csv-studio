@@ -350,11 +350,12 @@ export function OverviewCanvas() {
 
     if (clipboard) {
       ctx.fillStyle = clipboardMode === "reverse" ? "#7c3aed" : "#ea580c";
-      ctx.font = "bold 11px sans-serif";
+      ctx.font = "bold 10px sans-serif";
       ctx.textAlign = "left";
       ctx.textBaseline = "top";
       const modeText = clipboardMode === "reverse" ? "反転コピー済み" : "コピー済み";
-      ctx.fillText(`📋 ${modeText} — セル選択後に貼付ボタン`, 0, -labelMargin);
+      // 既存の上端余白内（サイズ表示のさらに上）へ表示し、列番号と重ねない。
+      ctx.fillText(`📋 ${modeText} — セル選択後に貼付ボタン`, 0, -(padding + sizeMargin + labelMargin) + 2);
     }
 
     ctx.restore();
@@ -957,7 +958,7 @@ export function OverviewCanvas() {
           <>
             {/* デリミタ切替ボタン（枠外上部、単一バッジ） */}
             <div
-              className="absolute z-50"
+              className="fixed z-50"
               style={{
                 left: `calc(${overlayStyle.left} + ${overlayStyle.width} / 2 - 28px)`,
                 top: `calc(${overlayStyle.top} - 36px)`,

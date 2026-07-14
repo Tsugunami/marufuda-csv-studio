@@ -589,7 +589,8 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     );
 
-    // 複数選択されたセルすべてに貼り付け（デリミタ文字は保存しない）
+    // 複数選択されたセルすべてに貼り付け（デリミタ文字は保存しない）。
+    // クリップボードは保持し、連続貼り付けを可能にする。
     for (const key of selectedCells) {
       const [r, c] = key.split(",").map(Number);
       if (usedCells.has(key)) continue;
@@ -600,8 +601,7 @@ export const useStore = create<AppState>((set, get) => ({
         targetLabel.rows[i].text = isDelimiterText(text) ? "" : text;
       }
     }
-        // 貼り付け後はクリップボードをクリアしてコピーボタンに戻す
-    set({ ...hist, grid: { ...grid, labels: newLabels }, clipboard: null, clipboardMode: null });
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
   },
 
   clearSelected: () => {
