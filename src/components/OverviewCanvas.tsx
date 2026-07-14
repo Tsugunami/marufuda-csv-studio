@@ -5,6 +5,9 @@ import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { getLabelDisplayTexts, isLabelUsed } from "../lib/label-utils";
 import { calcFontSizePt, countFullwidthChars, validateCharLimit } from "../lib/char-limit";
+import { getUniqueRowTexts, filterSuggestions } from "../lib/suggestions";
+import { SuggestionDropdown } from "./SuggestionDropdown";
+import type { SheetGrid } from "../lib/types";
 
 function cellKey(r: number, c: number): string {
   return `${r},${c}`;
@@ -32,6 +35,7 @@ export function OverviewCanvas() {
     setPresetTextCategory, renamePresetTextCategory,
     addPresetText, deletePresetText, addPresetTextCategory, deletePresetTextCategory,
     movePresetText, reorderPresetTextCategories, reorderPresetTexts, applyPresetTextToSelected,
+    replaceAllInGrid,
   } = useStore();
   const [zoom, setZoom] = useState(1);
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
@@ -47,8 +51,21 @@ export function OverviewCanvas() {
   const [draggedCategory, setDraggedCategory] = useState<string | null>(null);
   const [dragOverCategoryIndex, setDragOverCategoryIndex] = useState<number | null>(null);
   const [dragOverTextIndex, setDragOverTextIndex] = useState<number | null>(null);
+  const [activeSuggestionRow, setActiveSuggestionRow] = useState<number | null>(null);
+  const [overlayInputValues, setOverlayInputValues] = useState<string[]>([]);
+  const [showReplaceModal, setShowReplaceModal] = useState(false);
+  const [replaceFind, setReplaceFind] = useState("");
+  const [replaceTo, setReplaceTo] = useState("");
 
-  // HTML5 D&D の dataTransfer.getData() は WebView2 で空を返すため ref で管理
+  const candidateTexts = useMemo(() => getUniqueRowTexts(presetTexts), [presetTexts]);
+
+  const overlaySuggestions = useMemo(() => {
+    if (activeSuggestionRow === null) return [];
+    const val = overlayInputValues[activeSuggestionRow] ?? "";
+    return filterSuggestions(candidateTexts, val);
+  }, [candidateTexts, activeSuggestionRow, overlayInputValues]);
+
+  // 編集ラベルが変わったら入力値をリセット
   const dragDataRef = useRef<{ type: 'text'; id: string } | { type: 'category'; id: string } | null>(null);
 
   const isDragging = useRef(false);
@@ -402,6 +419,11 @@ export function OverviewCanvas() {
       if (usedCells.has(cellKey(cell.row, cell.col))) return;
       selectLabel(cell.row, cell.col, false, false);
       setEditingCell({ row: cell.row, col: cell.col });
+      const label = grid.labels[cell.row]?.[cell.col];
+      if (label) {
+        setOverlayInputValues(label.rows.map((r) => r.text));
+      }
+      setActiveSuggestionRow(null);
       setTimeout(() => inputRefs.current[0]?.focus(), 0);
     }
   };
@@ -931,6 +953,9 @@ export function OverviewCanvas() {
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={fitToWidth}>fit</button>
           <span className="text-slate-300 mx-1">|</span>
+          <button className="px-2 py-1 text-xs rounded border border-violet-300 text-violet-700 hover:bg-violet-50"
+            onClick={() => setShowReplaceModal(true)}>置換</button>
+          <span className="text-slate-300 mx-1">|</span>
           <button className="px-2 py-1 text-xs rounded border border-slate-300 hover:bg-slate-100"
             onClick={undo} title="元に戻す (Ctrl+Z)">↩ 戻す</button>
           <button className="px-2 py-1 text-xs rounded border border-red-300 text-red-600 hover:bg-red-50"
@@ -977,7 +1002,7 @@ export function OverviewCanvas() {
             {/* セル編集オーバーレイ */}
             <div
               ref={overlayRef}
-              className="z-40 bg-white border-2 border-brand-600 rounded shadow-lg overflow-hidden"
+              className="z-40 bg-white border-2 border-brand-600 rounded shadow-lg"
               style={overlayStyle}
               onMouseDown={(e) => e.stopPropagation()}
               onClick={(e) => e.stopPropagation()}
@@ -995,11 +1020,12 @@ export function OverviewCanvas() {
                       style={{ width: `${12 * zoom}px`, fontSize: `${Math.max(6, 10 * zoom)}px` }}>
                       {i + 1}
                     </span>
-                    <input
+                    <div className="flex-1 relative min-w-0" style={{ height: '100%' }}>
+                      <input
                       ref={(el) => { inputRefs.current[i] = el; }}
                       type="text"
                       readOnly={readOnly}
-                      className={`flex-1 border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 min-w-0 ${
+                      className={`w-full border-0 px-1 text-xs focus:outline-none focus:bg-blue-50 min-w-0 ${
                         readOnly
                           ? "bg-red-50 text-red-600 font-bold text-center"
                           : !validateCharLimit(row.text, layout.labelSize.widthMm, layout.labelSize.heightMm, layout.itemsPerLabel).ok
@@ -1008,9 +1034,20 @@ export function OverviewCanvas() {
                       }`}
                       style={{ fontSize: `${editingFontSize}px`, height: '100%' }}
                       value={displayValue}
-                      onChange={(e) => updateLabelRow(i, e.target.value)}
+                      onChange={(e) => {
+                        updateLabelRow(i, e.target.value);
+                        setOverlayInputValues((prev) => {
+                          const next = [...prev];
+                          next[i] = e.target.value;
+                          return next;
+                        });
+                      }}
                       onFocus={() => {
                         setEditingLine(i);
+                        setActiveSuggestionRow(i);
+                        if (editingLabel) {
+                          setOverlayInputValues(editingLabel.rows.map((r) => r.text));
+                        }
                         selectionRef.current.row = i;
                         const inp = inputRefs.current[i];
                         if (inp) {
@@ -1020,6 +1057,12 @@ export function OverviewCanvas() {
                         if (selectedRow !== editingCell.row || selectedCol !== editingCell.col) {
                           selectLabel(editingCell.row, editingCell.col);
                         }
+                      }}
+                      onBlur={() => {
+                        // 別の行へ移った場合、前の行の遅延処理で新しい候補を閉じない。
+                        window.setTimeout(() => {
+                          setActiveSuggestionRow((activeRow) => activeRow === i ? null : activeRow);
+                        }, 150);
                       }}
                       onSelect={() => {
                         const inp = inputRefs.current[i];
@@ -1034,12 +1077,30 @@ export function OverviewCanvas() {
                         }
                       }}
                       onKeyDown={(e) => {
-                        if (e.key === "Escape") {
+                        if (e.key === "Escape" && activeSuggestionRow !== i) {
                           setEditingCell(null);
                         }
                       }}
                     />
+                    {/* 候補ドロップダウン */}
+                    {activeSuggestionRow === i && !readOnly && (
+                      <SuggestionDropdown
+                        inputValue={overlayInputValues[i] ?? ""}
+                        candidates={overlaySuggestions}
+                        onSelect={(val) => {
+                          updateLabelRow(i, val);
+                          setOverlayInputValues((prev) => {
+                            const next = [...prev];
+                            next[i] = val;
+                            return next;
+                          });
+                        }}
+                        onClose={() => setActiveSuggestionRow(null)}
+                        inputElement={inputRefs.current[i]}
+                      />
+                    )}
                   </div>
+                    </div>
                 );
               })}
             </div>
@@ -1084,6 +1145,92 @@ export function OverviewCanvas() {
           }
         </div>
       )}
+
+      {/* 一括置換モーダル */}
+      {showReplaceModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setShowReplaceModal(false)}>
+          <div className="w-[400px] max-w-[90vw] rounded-lg bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-sm font-bold text-slate-800 mb-4">シート内一括置換</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-600 mb-1">検索文字列</label>
+                <input type="text" autoFocus
+                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  value={replaceFind} onChange={(e) => setReplaceFind(e.target.value)}
+                  placeholder="例: PORT(" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-600 mb-1">置換後文字列</label>
+                <input type="text"
+                  className="w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  value={replaceTo} onChange={(e) => setReplaceTo(e.target.value)}
+                  placeholder="空文字も可" />
+              </div>
+              <ReplacePreview
+                findText={replaceFind}
+                replacement={replaceTo}
+                grid={grid}
+                usedCells={usedCells}
+              />
+              <div className="flex justify-end gap-2">
+                <button className="rounded bg-slate-200 px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-300"
+                  onClick={() => { setShowReplaceModal(false); setReplaceFind(""); setReplaceTo(""); }}>キャンセル</button>
+                <button className="rounded bg-brand-600 px-3 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-40"
+                  disabled={!replaceFind}
+                  onClick={() => {
+                    const result = replaceAllInGrid(replaceFind, replaceTo);
+                    setShowReplaceModal(false);
+                    setReplaceFind("");
+                    setReplaceTo("");
+                    if (result.replacements > 0) {
+                      alert(`${result.labels} ラベル、${result.replacements} 件を置換しました`);
+                    }
+                  }}>置換実行</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 置換プレビューコンポーネント */
+interface ReplacePreviewProps {
+  findText: string;
+  replacement: string;
+  grid: SheetGrid;
+  usedCells: Set<string>;
+}
+function ReplacePreview({ findText, replacement, grid, usedCells }: ReplacePreviewProps) {
+  const preview = useMemo(() => {
+    if (!findText) return null;
+    let replacements = 0;
+    let labels = 0;
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (usedCells.has(cellKey(r, c))) continue;
+        let labelReplaced = false;
+        for (const row of grid.labels[r][c].rows) {
+          if (row.text.includes(findText)) {
+            const count = row.text.split(findText).length - 1;
+            replacements += count;
+            labelReplaced = true;
+          }
+        }
+        if (labelReplaced) labels++;
+      }
+    }
+    return { replacements, labels };
+  }, [findText, grid, usedCells]);
+
+  if (!preview) return null;
+  return (
+    <div className="rounded bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600">
+      {preview.replacements === 0
+        ? "一致する文字列はありません"
+        : `${preview.labels} ラベル・${preview.replacements} 件が置換対象です`
+      }
     </div>
   );
 }

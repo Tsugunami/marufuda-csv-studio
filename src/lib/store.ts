@@ -229,6 +229,7 @@ interface AppState {
   markFilledCellsUsed: () => string[];
   getProjectData: () => ProjectData;
   loadProjectData: (data: ProjectData, keepPresets?: boolean) => void;
+  replaceAllInGrid: (findText: string, replacement: string) => { replacements: number; labels: number };
 }
 
 const initialLayout: LayoutConfig = DEFAULT_PRESETS[0].layout;
@@ -1040,6 +1041,40 @@ export const useStore = create<AppState>((set, get) => ({
       history: [cloneGrid(newGrid)],
       historyIndex: 0,
     });
+  },
+
+  replaceAllInGrid: (findText, replacement) => {
+    const { grid, usedCells } = get();
+    if (!findText) return { replacements: 0, labels: 0 };
+
+    let totalReplacements = 0;
+    let affectedLabels = 0;
+    const newLabels = grid.labels.map((rowArr, r) =>
+      rowArr.map((label, c) => {
+        // usedCells のセルは置換対象外
+        if (usedCells.has(cellKey(r, c))) {
+          return { ...label, rows: label.rows.map((row) => ({ ...row })) };
+        }
+        const newRows = label.rows.map((row) => ({ ...row }));
+        let labelReplaced = false;
+        for (const row of newRows) {
+          if (row.text.includes(findText)) {
+            const count = row.text.split(findText).length - 1;
+            row.text = row.text.split(findText).join(replacement);
+            totalReplacements += count;
+            labelReplaced = true;
+          }
+        }
+        if (labelReplaced) affectedLabels++;
+        return { ...label, rows: newRows };
+      })
+    );
+
+    if (totalReplacements === 0) return { replacements: 0, labels: 0 };
+
+    const hist = pushHistory(get());
+    set({ ...hist, grid: { ...grid, labels: newLabels } });
+    return { replacements: totalReplacements, labels: affectedLabels };
   },
 }));
 

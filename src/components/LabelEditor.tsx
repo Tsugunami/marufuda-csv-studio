@@ -1,10 +1,13 @@
+import { useState, useRef, useMemo, useEffect } from "react";
 import { useStore } from "../lib/store";
 import { getDelimiterRowIndex } from "../lib/delimiter";
 import { isLabelUsed } from "../lib/label-utils";
 import { validateCharLimit } from "../lib/char-limit";
+import { getUniqueRowTexts, filterSuggestions } from "../lib/suggestions";
+import { SuggestionDropdown } from "./SuggestionDropdown";
 
 export function LabelEditor() {
-    const {
+  const {
     grid,
     selectedRow,
     selectedCol,
@@ -20,9 +23,30 @@ export function LabelEditor() {
     pasteFromClipboard,
     clearSelected,
     undo,
+    presetTexts,
   } = useStore();
 
   const label = grid.labels[selectedRow]?.[selectedCol];
+  const [activeSuggestionRow, setActiveSuggestionRow] = useState<number | null>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [inputValues, setInputValues] = useState<string[]>([]);
+
+  // 候補元テキスト
+  const candidateTexts = useMemo(() => getUniqueRowTexts(presetTexts), [presetTexts]);
+
+  // ラベルが変わったらinputValuesをリセット
+  useEffect(() => {
+    if (label) {
+      setInputValues(label.rows.map((r) => r.text));
+    }
+  }, [label]);
+
+  // アクティブな行の入力値に基づいて候補をフィルタ
+  const suggestions = useMemo(() => {
+    if (activeSuggestionRow === null) return [];
+    const val = inputValues[activeSuggestionRow] ?? "";
+    return filterSuggestions(candidateTexts, val);
+  }, [candidateTexts, activeSuggestionRow, inputValues]);
 
   if (!label) {
     return (
@@ -132,6 +156,7 @@ export function LabelEditor() {
               </span>
               <div className="flex-1 relative">
                 <input
+                  ref={(el) => { inputRefs.current[i] = el; }}
                   type="text"
                   className={`w-full border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 ${
                     isDelim && used
@@ -143,8 +168,42 @@ export function LabelEditor() {
                   value={displayValue}
                   readOnly={isDelim && used}
                   placeholder={`行 ${i + 1}`}
-                  onChange={(e) => updateLabelRow(i, e.target.value)}
+                  onChange={(e) => {
+                    updateLabelRow(i, e.target.value);
+                    setInputValues((prev) => {
+                      const next = [...prev];
+                      next[i] = e.target.value;
+                      return next;
+                    });
+                  }}
+                  onFocus={() => {
+                    setActiveSuggestionRow(i);
+                    setInputValues(label.rows.map((r) => r.text));
+                  }}
+                  onBlur={() => {
+                    // 別の行へ移った場合、前の行の遅延処理で新しい候補を閉じない。
+                    window.setTimeout(() => {
+                      setActiveSuggestionRow((activeRow) => activeRow === i ? null : activeRow);
+                    }, 150);
+                  }}
                 />
+                {/* 候補ドロップダウン */}
+                {activeSuggestionRow === i && !(isDelim && used) && (
+                  <SuggestionDropdown
+                    inputValue={inputValues[i] ?? ""}
+                    candidates={suggestions}
+                    onSelect={(val) => {
+                      updateLabelRow(i, val);
+                      setInputValues((prev) => {
+                        const next = [...prev];
+                        next[i] = val;
+                        return next;
+                      });
+                    }}
+                    onClose={() => setActiveSuggestionRow(null)}
+                    inputElement={inputRefs.current[i]}
+                  />
+                )}
                 {charInfo && (
                   <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] ${
                     isOver ? "text-red-500 font-bold" : "text-slate-400"
