@@ -592,24 +592,34 @@ export default function App() {
                 {historyList.length === 0 && (
                   <p className="text-xs text-slate-400 text-center py-4">履歴はありません</p>
                 )}
-                {historyList.map((entry) => (
-                  <div key={entry.filename} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-slate-50 border border-slate-200">
-                    <div className="flex-1 min-w-0">
-                      <p className="truncate font-medium text-slate-700">{entry.name}</p>
-                      <p className="text-slate-400 text-[10px]">{entry.timestamp}</p>
+                {historyList.map((entry) => {
+                  let sizeLabel = "";
+                  try {
+                    const project = JSON.parse(entry.project_json) as ProjectData;
+                    const ls = project.layout.labelSize;
+                    if (ls && ls.widthMm && ls.heightMm) {
+                      sizeLabel = `${ls.widthMm}×${ls.heightMm}mm`;
+                    }
+                  } catch { /* ignore parse error */ }
+                  return (
+                    <div key={entry.filename} className="flex items-center gap-1 text-xs px-2 py-1.5 rounded hover:bg-slate-50 border border-slate-200">
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-medium text-slate-700">{entry.name}</p>
+                        <p className="text-slate-400 text-[10px]">{entry.timestamp}{sizeLabel && <span className="ml-2 text-amber-500">〔{sizeLabel}〕</span>}</p>
+                      </div>
+                      <button
+                        className="text-blue-500 hover:text-blue-700 shrink-0"
+                        onClick={() => handleRestoreHistory(entry)}
+                        title="復元"
+                      >開く</button>
+                      <button
+                        className="text-red-400 hover:text-red-600 shrink-0"
+                        onClick={() => handleDeleteHistory(entry)}
+                        title="削除"
+                      >✕</button>
                     </div>
-                    <button
-                      className="text-blue-500 hover:text-blue-700 shrink-0"
-                      onClick={() => handleRestoreHistory(entry)}
-                      title="復元"
-                    >開く</button>
-                    <button
-                      className="text-red-400 hover:text-red-600 shrink-0"
-                      onClick={() => handleDeleteHistory(entry)}
-                      title="削除"
-                    >✕</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (
