@@ -154,6 +154,12 @@ function cellKey(r: number, c: number): string {
   return `${r},${c}`;
 }
 
+/** クリップボードデータ */
+export interface ClipboardData {
+  texts: string[];
+  useDelimiter: boolean;
+}
+
 /** プロジェクト保存・再開用データ */
 export interface ProjectData {
   version: number;
@@ -182,7 +188,7 @@ interface AppState {
   presetTexts: PresetTextItem[];
   presetTextCategories: string[];
   selectedPresetTextCategory: string;
-  clipboard: string[] | null;
+  clipboard: ClipboardData | null;
   clipboardMode: "copy" | "reverse" | null; // クリップボードの種類
     history: SheetGrid[]; // undo 用履歴
   historyIndex: number;
@@ -449,10 +455,10 @@ export const useStore = create<AppState>((set, get) => ({
     const delimIdx = getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign);
 
     // 前ブロック rows[0..delimIdx-1]、後ブロック rows[delimIdx+1..n-1]
-    // 反転時はブロック内の上下も反転させる（行0↔行n-1 のミラー）
+    // ブロック内の並びは維持し、上部と下部を入れ替える
     const n = layout.itemsPerLabel;
-    const beforeRows = sourceLabel.rows.slice(0, delimIdx).map((r) => ({ text: r.text })).reverse();
-    const afterRows = sourceLabel.rows.slice(delimIdx + 1).map((r) => ({ text: r.text })).reverse();
+    const beforeRows = sourceLabel.rows.slice(0, delimIdx).map((r) => ({ text: r.text }));
+    const afterRows = sourceLabel.rows.slice(delimIdx + 1).map((r) => ({ text: r.text }));
 
     let targetRow = selectedRow;
     let targetCol = selectedCol;
@@ -514,7 +520,7 @@ export const useStore = create<AppState>((set, get) => ({
     );
     const reversed = buildReversedLabel(sourceTexts, layout.delimiter);
     if (!reversed) return;
-    set({ clipboard: reversed, clipboardMode: "reverse" });
+    set({ clipboard: { texts: reversed, useDelimiter: true }, clipboardMode: "reverse" });
   },
 
   copyTo: (direction) => {
@@ -560,22 +566,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   copyToClipboard: () => {
-    const { grid, selectedRow, selectedCol, layout } = get();
+    const { grid, selectedRow, selectedCol } = get();
     const sourceLabel = grid.labels[selectedRow]?.[selectedCol];
     if (!sourceLabel) return;
 
-    const useDelim = sourceLabel.useDelimiter ?? true;
-    const sourceAlign = sourceLabel.delimiterAlign ?? layout.delimiterAlign;
-    const delimIdx = useDelim && layout.delimiter
-      ? getDelimiterRowIndex(layout.itemsPerLabel, sourceAlign)
-      : -1;
-    const used = sourceLabel.rows.some(
-      (row, i) => i !== delimIdx && row.text.trim() !== ""
-    );
-    const texts = sourceLabel.rows.map((r, i) =>
-      i === delimIdx && used ? layout.delimiter : r.text
-    );
-    set({ clipboard: texts, clipboardMode: "copy" });
+    // デリミタ文字は含めず、生のテキスト行とuseDelimiter状態をコピー
+    const texts = sourceLabel.rows.map((r) => r.text);
+    const useDelimiter = sourceLabel.useDelimiter ?? true;
+    set({ clipboard: { texts, useDelimiter }, clipboardMode: "copy" });
   },
 
   pasteFromClipboard: () => {
@@ -590,6 +588,9 @@ export const useStore = create<AppState>((set, get) => ({
       }))
     );
 
+    // クリップボードの useDelimiter 状態を貼り付け先にも反映
+    const { texts, useDelimiter } = clipboard;
+
     // 複数選択されたセルすべてに貼り付け（デリミタ文字は保存しない）。
     // クリップボードは保持し、連続貼り付けを可能にする。
     for (const key of selectedCells) {
@@ -597,8 +598,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (usedCells.has(key)) continue;
       const targetLabel = newLabels[r]?.[c];
       if (!targetLabel) continue;
+      targetLabel.useDelimiter = useDelimiter;
       for (let i = 0; i < targetLabel.rows.length; i++) {
-        const text = clipboard[i] ?? "";
+        const text = texts[i] ?? "";
         targetLabel.rows[i].text = isDelimiterText(text) ? "" : text;
       }
     }
